@@ -68,6 +68,43 @@ isMid    = not isTop and not isBottom
 dotColor = isTop ? #00E676 : isBottom ? #FF1744 : #2979FF
 
 // ============================================================================
+// DIVERGENCE TESPITI
+// ============================================================================
+
+showDiv     = input.bool(true, title="Show Divergences", group="Divergence")
+divLookback = input.int(5, title="Pivot Lookback", minval=2, maxval=20, group="Divergence",
+                  tooltip="Pivot tespiti icin sol/sag bar sayisi. Yuksek = daha onemli pivotlar ama daha gec uyari. Dusuk = hizli ama daha gurultulu.")
+zoneFilter  = input.bool(true, title="Filter to Near Extreme Zones", group="Divergence",
+                  tooltip="Aciksa sadece tepe/dip bolgesi yakininda olan divergence'leri isaretler. Cycle ortasinda olusan gurultulu divergence'leri eler.")
+
+piH = ta.pivothigh(cycleScore, divLookback, divLookback)
+piL = ta.pivotlow(cycleScore,  divLookback, divLookback)
+
+var float prevPiH      = na
+var float prevPiHPrice = na
+var float prevPiL      = na
+var float prevPiLPrice = na
+
+bearDiv = false
+bullDiv = false
+
+if not na(piH)
+    pivotPrice = high[divLookback]
+    if not na(prevPiH) and pivotPrice > prevPiHPrice and piH < prevPiH
+        zoneOK = not zoneFilter or piH >= topZone - 10 or prevPiH >= topZone - 10
+        bearDiv := zoneOK
+    prevPiH      := piH
+    prevPiHPrice := pivotPrice
+
+if not na(piL)
+    pivotPrice = low[divLookback]
+    if not na(prevPiL) and pivotPrice < prevPiLPrice and piL > prevPiL
+        zoneOK = not zoneFilter or piL <= bottomZone + 10 or prevPiL <= bottomZone + 10
+        bullDiv := zoneOK
+    prevPiL      := piL
+    prevPiLPrice := pivotPrice
+
+// ============================================================================
 // CIZIM
 // ============================================================================
 
@@ -82,6 +119,12 @@ hlineCap = hline(100, title="Cap",   display=display.none)
 hlineFlr = hline(0,   title="Floor", display=display.none)
 fill(hlineCap, hlineTop,    color=showZoneFill ? color.new(#00E676, 92) : na, title="Top Zone Fill")
 fill(hlineBottom, hlineFlr, color=showZoneFill ? color.new(#FF1744, 92) : na, title="Bottom Zone Fill")
+
+// Divergence isaretleri - pivot bar'a geri offset edilir, cycle line uzerine konur
+plotshape(showDiv and bearDiv ? piH : na, title="Bearish Divergence", style=shape.triangledown,
+          location=location.absolute, color=color.new(#FF6D00, 0), size=size.small, offset=-divLookback)
+plotshape(showDiv and bullDiv ? piL : na, title="Bullish Divergence", style=shape.triangleup,
+          location=location.absolute, color=color.new(#00BCD4, 0), size=size.small, offset=-divLookback)
 
 // ============================================================================
 // BILGI ETIKETI (son barda)
@@ -109,3 +152,5 @@ alertcondition(enterTop,    title="Enter Top Zone",    message="CycleScope: Cycl
 alertcondition(exitTop,     title="Exit Top Zone",     message="CycleScope: Cycle tepe bolgesinden cikti {{ticker}} - Sogumaya basladi")
 alertcondition(enterBottom, title="Enter Bottom Zone", message="CycleScope: Cycle DIP bolgesine girdi {{ticker}} - Kapitulasyon / asiri korku")
 alertcondition(exitBottom,  title="Exit Bottom Zone",  message="CycleScope: Cycle dip bolgesinden cikti {{ticker}} - Toparlanma basliyor")
+alertcondition(bearDiv,     title="Bearish Divergence", message="CycleScope: Bearish divergence - olasi tepe yaklasiyor {{ticker}} @ {{close}}")
+alertcondition(bullDiv,     title="Bullish Divergence", message="CycleScope: Bullish divergence - olasi dip yaklasiyor {{ticker}} @ {{close}}")
