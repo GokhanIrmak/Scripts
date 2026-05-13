@@ -2,7 +2,7 @@
 // Overbought / Oversold Tracker
 // RSI tabanli, ayri panelde noktali gosterim (CloudTrend ile birlikte kullanim icin)
 
-//@version=5
+//@version=6
 indicator("OB/OS Tracker", shorttitle="OB/OS", overlay=false)
 
 // ============================================================================

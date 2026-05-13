@@ -2,7 +2,7 @@
 // Cloud Trend Tracker - Bulut Tabanli Trend Takip
 // BTC, Gold, NASDAQ/S&P icin optimize edilmis
 
-//@version=5
+//@version=6
 indicator("Cloud Trend Tracker", shorttitle="CloudTrend", overlay=true)
 
 // ============================================================================
