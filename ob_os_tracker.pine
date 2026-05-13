@@ -1,6 +1,6 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // Overbought / Oversold Tracker
-// RSI tabanli, ayri panelde noktali gosterim (CloudTrend ile birlikte kullanim icin)
+// RSI veya Stoch RSI tabanli, ayri panelde noktali gosterim (CloudTrend ile birlikte kullanim icin)
 
 //@version=6
 indicator("OB/OS Tracker", shorttitle="OB/OS", overlay=false)
@@ -9,10 +9,15 @@ indicator("OB/OS Tracker", shorttitle="OB/OS", overlay=false)
 // AYARLAR
 // ============================================================================
 
-rsiLen        = input.int(14, title="RSI Length", minval=2, group="RSI")
-obLevel       = input.int(70, title="Overbought Level", minval=50, maxval=95, group="Levels")
-osLevel       = input.int(30, title="Oversold Level",   minval=5,  maxval=50, group="Levels")
-showZoneFill  = input.bool(true, title="Shade OB/OS Zones", group="Display")
+oscType  = input.string("RSI", "Oscillator Type", options=["RSI", "Stoch RSI"], group="Oscillator", tooltip="RSI: klasik, daha az ama guclu sinyal. Stoch RSI: RSI'in kendi son N barina gore yuzdelik konumu - cok daha hareketli, sik sik OB/OS bolgesine girer.")
+
+rsiLen   = input.int(14, "RSI Length",        minval=2, maxval=50, group="Oscillator")
+stochLen = input.int(14, "Stoch Length",      minval=2, maxval=50, group="Oscillator", tooltip="Sadece Stoch RSI modunda kullanilir.")
+smoothK  = input.int(3,  "K Smoothing",       minval=1, maxval=10, group="Oscillator", tooltip="Sadece Stoch RSI modunda kullanilir. Stoch RSI K cizgisinin yumusatma periyodu.")
+
+obLevel      = input.int(70, "Overbought Level", minval=50, maxval=95, group="Levels", tooltip="RSI icin 70, Stoch RSI icin 80 onerilir.")
+osLevel      = input.int(30, "Oversold Level",   minval=5,  maxval=50, group="Levels", tooltip="RSI icin 30, Stoch RSI icin 20 onerilir.")
+showZoneFill = input.bool(true, "Shade OB/OS Zones", group="Display")
 
 // ============================================================================
 // HESAPLAMA
@@ -20,9 +25,16 @@ showZoneFill  = input.bool(true, title="Shade OB/OS Zones", group="Display")
 
 rsiValue = ta.rsi(close, rsiLen)
 
-isOverbought = rsiValue >= obLevel
-isOversold   = rsiValue <= osLevel
-isMid        = not isOverbought and not isOversold
+// Stoch RSI: RSI'in son stochLen barindaki yuzdelik konumu, sonra SMA ile yumusatilir
+stochRSIRaw = ta.stoch(rsiValue, rsiValue, rsiValue, stochLen)
+stochRSIK   = ta.sma(stochRSIRaw, smoothK)
+
+// Secime gore ana osilator degeri
+oscValue = oscType == "Stoch RSI" ? stochRSIK : rsiValue
+oscName  = oscType == "Stoch RSI" ? "Stoch RSI" : "RSI"
+
+isOverbought = oscValue >= obLevel
+isOversold   = oscValue <= osLevel
 
 // Renk: yesil = overbought, kirmizi = oversold, mavi = mid
 dotColor = isOverbought ? #00E676 : isOversold ? #FF1744 : #2979FF
@@ -31,18 +43,15 @@ dotColor = isOverbought ? #00E676 : isOversold ? #FF1744 : #2979FF
 // CIZIM
 // ============================================================================
 
-// Noktali RSI cizgisi (fotograftaki gibi)
-plot(rsiValue, title="RSI Line", color=color.new(#555555, 60), linewidth=1)
-plot(rsiValue, title="RSI Dots",  color=dotColor, linewidth=4, style=plot.style_circles)
+plot(oscValue, title="Oscillator Line", color=color.new(#555555, 60), linewidth=1)
+plot(oscValue, title="Oscillator Dots", color=dotColor, linewidth=4, style=plot.style_circles)
 
-// Seviye cizgileri
-hlineOB  = hline(obLevel, title="Overbought", color=color.new(#00E676, 50), linestyle=hline.style_dashed)
-hlineMid = hline(50,      title="Midline",    color=color.new(#888888, 60), linestyle=hline.style_dotted)
-hlineOS  = hline(osLevel, title="Oversold",   color=color.new(#FF1744, 50), linestyle=hline.style_dashed)
+hlineOB  = hline(obLevel, "Overbought", color=color.new(#00E676, 50), linestyle=hline.style_dashed)
+hline(50,                 "Midline",    color=color.new(#888888, 60), linestyle=hline.style_dotted)
+hlineOS  = hline(osLevel, "Oversold",   color=color.new(#FF1744, 50), linestyle=hline.style_dashed)
 
-// OB/OS bolge golgelemesi
-hlineTop = hline(100, title="Top", display=display.none)
-hlineBot = hline(0,   title="Bot", display=display.none)
+hlineTop = hline(100, "Top", display=display.none)
+hlineBot = hline(0,   "Bot", display=display.none)
 fill(hlineTop, hlineOB, color=showZoneFill ? color.new(#00E676, 92) : na, title="OB Zone")
 fill(hlineOS,  hlineBot, color=showZoneFill ? color.new(#FF1744, 92) : na, title="OS Zone")
 
@@ -55,7 +64,7 @@ exitOB  = not isOverbought and isOverbought[1]
 enterOS = isOversold and not isOversold[1]
 exitOS  = not isOversold and isOversold[1]
 
-alertcondition(enterOB, title="Enter Overbought", message="OB/OS: Asiri alim bolgesine girdi {{ticker}} (RSI>{{plot_0}})")
+alertcondition(enterOB, title="Enter Overbought", message="OB/OS: Asiri alim bolgesine girdi {{ticker}}")
 alertcondition(exitOB,  title="Exit Overbought",  message="OB/OS: Asiri alim bolgesinden cikti {{ticker}}")
-alertcondition(enterOS, title="Enter Oversold",   message="OB/OS: Asiri satim bolgesine girdi {{ticker}} (RSI<{{plot_0}})")
+alertcondition(enterOS, title="Enter Oversold",   message="OB/OS: Asiri satim bolgesine girdi {{ticker}}")
 alertcondition(exitOS,  title="Exit Oversold",    message="OB/OS: Asiri satim bolgesinden cikti {{ticker}}")

@@ -208,54 +208,82 @@ Divergence'tan farklı, daha hızlı bir sinyal. Cycle skoru zone yakınında (d
 
 ## 4. OB/OS Tracker (`ob_os_tracker.pine`)
 
-**Alt panel** — RSI tabanlı kısa vadeli aşırı alım/satım göstergesi.
+**Alt panel** — Kısa vadeli aşırı alım/satım göstergesi. **RSI** veya **Stoch RSI** seçilebilir.
 
 ### Ne ölçer
 
-> "Son 14 barda fiyat çok mu hızlı arttı/azaldı?"
+> "Son N barda fiyat çok mu hızlı arttı/azaldı?"
 
-Klasik RSI'ı renkli noktalarla görselleştirir. CycleScope ile karıştırılmamalı:
+İki mod var, ihtiyaca göre seçilir:
+
+| Mod | Mantık | Karakter |
+|---|---|---|
+| **RSI** (default) | Klasik momentum osilatörü, fiyat değişiminin oranı | Az ama güçlü sinyal, az gürültü |
+| **Stoch RSI** | RSI'ın kendi son N barındaki yüzdelik konumu | Çok daha hareketli, sık sık zone'a girer |
+
+CycleScope ile karıştırılmamalı:
 
 | | OB/OS Tracker | CycleScope |
 |---|---|---|
-| Ölçer | Kısa vade momentum (14 bar) | Uzun vade döngü pozisyonu |
+| Ölçer | Kısa vade momentum (14-21 bar) | Uzun vade döngü pozisyonu |
 | Zaman | Günler-haftalar | Aylar-yıllar |
 | Kullanım | Giriş/çıkış zamanlaması | Genel pozisyonlanma, risk yönetimi |
 
 ### Skor yorumu
 
-| RSI | Renk | Bölge |
+| Değer | Renk | Bölge |
 |---|---|---|
-| ≥ 70 | 🟢 Yeşil | Overbought — kısa düzeltme gelebilir |
-| 30-70 | 🔵 Mavi | Mid — nötr bölge |
-| ≤ 30 | 🔴 Kırmızı | Oversold — kısa tepki rallisi gelebilir |
+| ≥ Overbought | 🟢 Yeşil | Aşırı alım — kısa düzeltme gelebilir |
+| Mid | 🔵 Mavi | Nötr bölge |
+| ≤ Oversold | 🔴 Kırmızı | Aşırı satım — kısa tepki rallisi gelebilir |
 
 ### Inputlar
 
 | Input | Default | Açıklama |
 |---|---|---|
-| RSI Length | 14 | RSI periyodu |
-| Overbought Level | 70 | Overbought eşiği |
-| Oversold Level | 30 | Oversold eşiği |
+| Oscillator Type | RSI | RSI veya Stoch RSI seç |
+| RSI Length | 14 | RSI hesaplama periyodu (her iki modda da kullanılır) |
+| Stoch Length | 14 | Sadece Stoch RSI modu: RSI'ın yüzdelik konumu için lookback |
+| K Smoothing | 3 | Sadece Stoch RSI modu: K çizgisi yumuşatma |
+| Overbought Level | 70 | Aşırı alım eşiği — RSI için 70, Stoch RSI için 80 önerilir |
+| Oversold Level | 30 | Aşırı satım eşiği — RSI için 30, Stoch RSI için 20 önerilir |
 | Shade OB/OS Zones | açık | Bölgeleri gölgelendir |
 
 ### Timeframe önerileri
 
+#### RSI modu
 | Timeframe | RSI Len | OB / OS | Notes |
 |---|---|---|---|
-| Haftalık (klasik) | 14 | 70 / 30 | Standart, az ama güçlü sinyal |
+| Haftalık | 14 | 70 / 30 | Standart, az ama güçlü sinyal |
 | Günlük (BTC) | 21 | 75 / 25 | Daha az gürültü |
 | Günlük (agresif crypto) | 21 | 80 / 20 | Sadece keskin uçlar |
 | 4 saatlik | 14 | 75 / 25 | Daha az whipsaw |
+
+#### Stoch RSI modu
+| Timeframe | RSI / Stoch / K | OB / OS | Notes |
+|---|---|---|---|
+| Haftalık | 14 / 14 / 3 | 80 / 20 | Standart |
+| Günlük | 14 / 14 / 3 | 80 / 20 | Çok hareketli |
+| Günlük (daha az sinyal) | 14 / 21 / 3 | 85 / 15 | Daha selektif |
+
+### RSI mi Stoch RSI mi?
+
+| Tercih | Hangisi |
+|---|---|
+| Az ama güvenilir sinyal istiyorum | RSI |
+| Sık tepki noktaları yakalamak istiyorum | Stoch RSI |
+| Selcoin / TR crypto sitelerindeki tarz | Stoch RSI |
+| Hisse, altın takibi | RSI |
+| Crypto scalp/swing | Stoch RSI |
 
 ### Alertler
 
 | Alert | Tetiklenme |
 |---|---|
-| Enter Overbought | RSI 70'i geçti |
-| Exit Overbought | RSI 70'in altına düştü |
-| Enter Oversold | RSI 30'un altına düştü |
-| Exit Oversold | RSI 30'u geçti |
+| Enter Overbought | Osilatör overbought eşiğini geçti |
+| Exit Overbought | Eşiğin altına düştü |
+| Enter Oversold | Osilatör oversold eşiğinin altına düştü |
+| Exit Oversold | Eşiği geçti |
 
 ---
 
