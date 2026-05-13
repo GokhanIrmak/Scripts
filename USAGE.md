@@ -74,9 +74,13 @@ Sistem üç katmanlı zaman ölçeği üzerinde çalışır. Her gösterge farkl
 
 > "Şu an, geçmiş döngüye göre neredeyiz?"
 
-- Fiyatın uzun dönem ortalamasından sapmasını hesaplar (Mayer Multiple mantığı)
-- Bu sapmayı geçmiş bar dağılımıyla karşılaştırıp 0-100 arası bir skora çevirir
-- **Overbought/oversold değildir** — döngü pozisyonudur
+Üç bileşeni opsiyonel olarak ağırlıklandırılmış şekilde birleştirir (composite mode), veya sadece Mayer ile çalışır (sade mode).
+
+- **Mayer** (default %50): Fiyatın uzun dönem ortalamasından sapması (klasik Mayer Multiple mantığı)
+- **MTF RSI** (default %25): Günlük + Haftalık + Chart RSI ortalaması — çok katmanlı momentum
+- **Momentum/ROC** (default %25): Normalize edilmiş rate-of-change
+
+Sonuç 0-100 arası bir skora çevrilir. **Overbought/oversold değildir** — döngü pozisyonudur.
 
 ### Skor yorumu
 
@@ -88,17 +92,59 @@ Sistem üç katmanlı zaman ölçeği üzerinde çalışır. Her gösterge farkl
 | 20-40 | 🔵 Mavi | Alt orta | Düşüş hâkim ama dip yaklaşıyor |
 | 0-20 | 🔴 Kırmızı | BOTTOM | Geçmiş döngüde böyle yerlerden yükseliş başlamıştı — fırsat |
 
+### Trend filter — Güçlü / Zayıf ayrımı
+
+Trend filter açıkken (default), zone'a girilse bile trend uyumu kontrol edilir:
+
+| Durum | Anlam | Renk |
+|---|---|---|
+| Top + downtrend | **STRONG TOP** — trend dönüş başladı, cycle teyit ediyor | 🟢 Parlak yeşil |
+| Top + uptrend | **WEAK TOP** — cycle aşırı ama trend hâlâ yukarı, erken olabilir | 🟢 Sönük yeşil |
+| Bottom + uptrend | **STRONG BOTTOM** — trend dönüş başladı, cycle teyit ediyor | 🔴 Parlak kırmızı |
+| Bottom + downtrend | **WEAK BOTTOM** — cycle aşırı ama trend hâlâ aşağı, erken olabilir | 🔴 Sönük kırmızı |
+
+Trend filter kapalıyken bu ayrım yok, ham zone gösterilir.
+
+### Cooldown
+
+Aynı yöndeki sinyaller arasında minimum bar mesafesi (default 60). Cycle göstergesinin doğası gereği zone'da uzun süre kalıp her bar yeniden tetikleme spam'ini önler.
+
 ### Inputlar
 
+#### Cycle grubu
 | Input | Default | Açıklama |
 |---|---|---|
 | Auto-Adapt to Timeframe | açık | Chart TF'ine göre longMA ve lookback otomatik seçilir |
 | Long MA Length (manual) | 200 | Manuel mod: uzun MA periyodu |
 | Lookback (manual) | 300 | Manuel mod: normalizasyon penceresi |
 | Normalization | Z-Score | Z-Score / Percentile Rank seçimi |
+| Output Smoothing | 8 | HMA yumuşatma periyodu (1 = yumuşatma yok) |
+
+#### Composite grubu
+| Input | Default | Açıklama |
+|---|---|---|
+| Use Composite Scoring | açık | Açık: 3 bileşen birleşik. Kapalı: sadece Mayer (sade mod) |
+| Mayer weight | 0.50 | Mayer bileşeni ağırlığı |
+| MTF RSI weight | 0.25 | RSI bileşeni ağırlığı |
+| Momentum/ROC weight | 0.25 | Momentum bileşeni ağırlığı |
+
+#### MTF RSI grubu
+| Input | Default | Açıklama |
+|---|---|---|
+| RSI Length | 14 | RSI periyodu |
+| Use Daily RSI | açık | Günlük TF RSI'ı dahil et |
+| Use Weekly RSI | açık | Haftalık TF RSI'ı dahil et |
+| Use Current TF RSI | açık | Chart'ın kendi TF RSI'ı dahil et |
+
+#### Zones / Trend Filter / Cooldown grupları
+| Input | Default | Açıklama |
+|---|---|---|
 | Top Zone | 80 | Tepe bölgesi eşiği |
 | Bottom Zone | 20 | Dip bölgesi eşiği |
-| Output Smoothing | 8 | HMA yumuşatma periyodu (1 = yumuşatma yok) |
+| Apply Trend Filter | açık | Strong/Weak ayrımı yap |
+| Trend EMA Length | 100 | Trend referans EMA |
+| Enable Signal Cooldown | açık | Sinyal spam'ini önle |
+| Min Bars Between Same-Direction Signals | 60 | Cooldown süresi |
 
 ### Auto-Adapt parametre tablosu
 
@@ -131,10 +177,8 @@ Sistem üç katmanlı zaman ölçeği üzerinde çalışır. Her gösterge farkl
 
 | Alert | Tetiklenme |
 |---|---|
-| Enter Top Zone | Skor 80+ bölgeye girdi |
-| Exit Top Zone | Tepe bölgesinden çıktı |
-| Enter Bottom Zone | Skor 20- bölgeye girdi |
-| Exit Bottom Zone | Dip bölgesinden çıktı |
+| Enter Top Zone | Effective top zone'a girildi (trend filter + cooldown sonrası) |
+| Enter Bottom Zone | Effective bottom zone'a girildi |
 | Bearish Divergence | Olası tepe formasyonu |
 | Bullish Divergence | Olası dip formasyonu |
 

@@ -1,31 +1,82 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// Cycle Scope - Asset-agnostic long-term cycle position tracker
+// Cycle Scope v2 (Hybrid) - Composite cycle position tracker
 // BTC, Altin, Hisse / Endeks - hepsinde calisir. On-chain alternatifi olarak fiyat-temelli.
+//
+// v2 eklemeler:
+//   - Composite scoring (Mayer + MTF RSI + Momentum) - opsiyonel
+//   - Trend filter (zone'a girdi ama trend uyumsuz = zayif sinyal)
+//   - Cooldown (ayni yonde sinyal spamini onler)
+//   - Divergence detection (v1'den gelen)
 
 //@version=5
 indicator("Cycle Scope", shorttitle="CycleScope", overlay=false)
 
 // ============================================================================
-// AYARLAR
+// AYARLAR - CYCLE
 // ============================================================================
 
-autoTF       = input.bool(true, title="Auto-Adapt to Timeframe", group="Cycle",
-                  tooltip="Acikken chart timeframe'ine gore otomatik longMA ve lookback secer. Haftalik/aylik chartlarda kisa veri ile calisabilmesini saglar.")
+autoTF    = input.bool(true, title="Auto-Adapt to Timeframe", group="Cycle",
+                tooltip="Acikken chart timeframe'ine gore otomatik longMA ve lookback secer.")
+longMA    = input.int(200, title="Long MA Length (manual)", minval=20, maxval=500, group="Cycle")
+lookback  = input.int(300, title="Lookback (manual)",       minval=50, maxval=2000, group="Cycle")
+normMode  = input.string("Z-Score", title="Normalization", options=["Percentile Rank", "Z-Score"], group="Cycle",
+                tooltip="Z-Score: 'ortalamadan kac sigma'. Percentile: 'gecmisin yuzde kacindan yuksek'. Z-Score kisa veride bile calisir.")
+smoothLen = input.int(8, title="Output Smoothing", minval=1, maxval=30, group="Cycle",
+                tooltip="Composite skoru yumusatmak icin HMA periyodu. 1 = yumusatma yok.")
 
-longMA       = input.int(200, title="Long MA Length (manual)", minval=20, maxval=500, group="Cycle",
-                  tooltip="Manuel mod: uzun donem referans MA. Fiyat bu MA'dan ne kadar saptigi olculur.")
-lookback     = input.int(300, title="Lookback (manual)", minval=50, maxval=2000, group="Cycle",
-                  tooltip="Manuel mod: normalizasyon icin gecmis bar sayisi. Cycle uzunlugundan biraz fazla olmali.")
+// ============================================================================
+// AYARLAR - COMPOSITE
+// ============================================================================
 
-normMode     = input.string("Z-Score", title="Normalization", options=["Percentile Rank", "Z-Score"], group="Cycle",
-                  tooltip="Percentile Rank: 'gecmiste ne kadarindan yuksek' der, kisa veride na uretebilir. Z-Score: 'kac sigma sapma' der, daha az veride bile calisir.")
+useComposite = input.bool(true, title="Use Composite Scoring", group="Composite",
+                  tooltip="Acik: Mayer + MTF RSI + Momentum birlestirilir. Kapali: sadece klasik Mayer (sade mod).")
+wMayer       = input.float(0.50, title="Mayer (price vs longMA) weight", minval=0, maxval=1, step=0.05, group="Composite")
+wRSI         = input.float(0.25, title="MTF RSI weight",                 minval=0, maxval=1, step=0.05, group="Composite")
+wMom         = input.float(0.25, title="Momentum/ROC weight",            minval=0, maxval=1, step=0.05, group="Composite")
+
+// ============================================================================
+// AYARLAR - MTF RSI
+// ============================================================================
+
+rsiLen       = input.int(14, title="RSI Length", minval=2, maxval=50, group="MTF RSI")
+useDailyRSI  = input.bool(true, title="Use Daily RSI",       group="MTF RSI")
+useWeeklyRSI = input.bool(true, title="Use Weekly RSI",      group="MTF RSI")
+useChartRSI  = input.bool(true, title="Use Current TF RSI",  group="MTF RSI")
+
+// ============================================================================
+// AYARLAR - ZONES & TREND FILTER
+// ============================================================================
 
 topZone      = input.int(80, title="Top Zone (Euphoria)",        minval=60, maxval=99, group="Zones")
 bottomZone   = input.int(20, title="Bottom Zone (Capitulation)", minval=1,  maxval=40, group="Zones")
-showZoneFill = input.bool(true, title="Shade Top/Bottom Zones", group="Display")
+showZoneFill = input.bool(true, title="Shade Top/Bottom Zones", group="Zones")
 
-smoothLen    = input.int(8, title="Output Smoothing", minval=1, maxval=30, group="Display",
-                  tooltip="Cycle skorunu yumusatmak icin HMA periyodu. 1 = yumusatma yok. Yuksek = daha duzgun dalga.")
+useTrendFilter = input.bool(true, title="Apply Trend Filter", group="Trend Filter",
+                    tooltip="Acik: cycle tepe/dip'e girse de trend uyumsuzsa ZAYIF sinyal (sonuk renk). Trend uyumlu olunca GUCLU sinyal (parlak renk + alert).")
+trendEMALen    = input.int(100, title="Trend EMA Length", minval=20, maxval=500, group="Trend Filter")
+
+// ============================================================================
+// AYARLAR - COOLDOWN
+// ============================================================================
+
+useCooldown  = input.bool(true, title="Enable Signal Cooldown", group="Cooldown",
+                  tooltip="Ayni yondeki sinyaller arasinda minimum bar mesafesi zorlar. Cycle analizinde spam'i onler.")
+cooldownBars = input.int(60, title="Min Bars Between Same-Direction Signals", minval=5, maxval=500, group="Cooldown")
+
+// ============================================================================
+// AYARLAR - DIVERGENCE
+// ============================================================================
+
+showDiv     = input.bool(true, title="Show Divergences", group="Divergence")
+divLookback = input.int(5, title="Pivot Lookback", minval=2, maxval=20, group="Divergence",
+                  tooltip="Pivot tespiti icin sol/sag bar sayisi. Yuksek = onemli pivotlar, gec uyari.")
+zoneFilter  = input.bool(true, title="Filter to Near Extreme Zones", group="Divergence")
+
+// ============================================================================
+// AYARLAR - DISPLAY
+// ============================================================================
+
+showLabel = input.bool(true, title="Show Current Score Label", group="Display")
 
 // ============================================================================
 // TIMEFRAME-ADAPTIVE PARAMETRELER
@@ -38,44 +89,113 @@ effLongMA   = autoTF ? autoLongMA   : longMA
 effLookback = autoTF ? autoLookback : lookback
 
 // ============================================================================
-// HESAPLAMA: Log-ratio + (Percentile Rank | Z-Score)
+// BILESEN 1: MAYER (fiyat / uzun MA sapmasi)
 // ============================================================================
 
 longMean = ta.sma(close, effLongMA)
 ratio    = math.log(close / longMean)
 
-// Percentile rank (klasik Mayer percentile)
 prScore = ta.percentrank(ratio, effLookback)
-
-// Z-score - kisa veride bile calisir
 ratMean = ta.sma(ratio, effLookback)
 ratSD   = ta.stdev(ratio, effLookback)
 zRaw    = ratSD > 0 ? (ratio - ratMean) / ratSD : 0.0
-zScore  = math.max(0.0, math.min(100.0, 50.0 + zRaw * (50.0 / 3.0)))  // ±3 sigma → 0-100
+zScore  = math.max(0.0, math.min(100.0, 50.0 + zRaw * (50.0 / 3.0)))
 
-// Mod secimi + percentile bos kalirsa z-score fallback
-selectedScore = normMode == "Percentile Rank" ? (na(prScore) ? zScore : prScore) : zScore
-
-// Hull MA ile yumusatma (EMA'dan belirgin daha duzgun, daha az lag)
-cycleScore = smoothLen > 1 ? ta.hma(selectedScore, smoothLen) : selectedScore
-
-// Zone tanimi
-isTop    = cycleScore >= topZone
-isBottom = cycleScore <= bottomZone
-isMid    = not isTop and not isBottom
-
-// Renk: yesil = top/euphoria, kirmizi = bottom/capitulation, mavi = mid
-dotColor = isTop ? #00E676 : isBottom ? #FF1744 : #2979FF
+mayerScore = normMode == "Percentile Rank" ? (na(prScore) ? zScore : prScore) : zScore
 
 // ============================================================================
-// DIVERGENCE TESPITI
+// BILESEN 2: MTF RSI (gunluk + haftalik + chart)
 // ============================================================================
 
-showDiv     = input.bool(true, title="Show Divergences", group="Divergence")
-divLookback = input.int(5, title="Pivot Lookback", minval=2, maxval=20, group="Divergence",
-                  tooltip="Pivot tespiti icin sol/sag bar sayisi. Yuksek = daha onemli pivotlar ama daha gec uyari. Dusuk = hizli ama daha gurultulu.")
-zoneFilter  = input.bool(true, title="Filter to Near Extreme Zones", group="Divergence",
-                  tooltip="Aciksa sadece tepe/dip bolgesi yakininda olan divergence'leri isaretler. Cycle ortasinda olusan gurultulu divergence'leri eler.")
+rsiChart  = ta.rsi(close, rsiLen)
+rsiDaily  = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead=barmerge.lookahead_off)
+rsiWeekly = request.security(syminfo.tickerid, "W", ta.rsi(close, rsiLen), lookahead=barmerge.lookahead_off)
+
+rsiCount = (useDailyRSI ? 1 : 0) + (useWeeklyRSI ? 1 : 0) + (useChartRSI ? 1 : 0)
+rsiSum   = (useDailyRSI ? rsiDaily : 0) + (useWeeklyRSI ? rsiWeekly : 0) + (useChartRSI ? rsiChart : 0)
+rsiScore = rsiCount > 0 ? rsiSum / rsiCount : 50.0
+
+// ============================================================================
+// BILESEN 3: MOMENTUM / ROC
+// ============================================================================
+
+rocLen   = math.max(20, effLongMA / 4)
+rocVal   = ta.roc(close, rocLen)
+rocMean  = ta.sma(rocVal, effLookback)
+rocSD    = ta.stdev(rocVal, effLookback)
+rocZ     = rocSD > 0 ? (rocVal - rocMean) / rocSD : 0.0
+momScore = math.max(0.0, math.min(100.0, 50.0 + rocZ * (50.0 / 3.0)))
+
+// ============================================================================
+// COMPOSITE SCORE
+// ============================================================================
+
+totalW       = wMayer + wRSI + wMom
+totalW      := totalW > 0 ? totalW : 1.0
+compositeRaw = (wMayer * mayerScore + wRSI * rsiScore + wMom * momScore) / totalW
+
+selectedScore = useComposite ? compositeRaw : mayerScore
+cycleScore    = smoothLen > 1 ? ta.hma(selectedScore, smoothLen) : selectedScore
+
+// ============================================================================
+// TREND FILTER
+// ============================================================================
+
+trendEMA  = ta.ema(close, trendEMALen)
+isUptrend = close > trendEMA
+
+isTopRaw    = cycleScore >= topZone
+isBottomRaw = cycleScore <= bottomZone
+
+// Strong = trend confirms the cycle exhaustion
+// Top STRONG    = zone'da + trend zaten asagi dondu  -> guvenilir tepe
+// Top WEAK      = zone'da ama hala yukari trend      -> erken / yanlis pozitif olabilir
+// Bottom STRONG = zone'da + trend zaten yukari dondu -> guvenilir dip
+// Bottom WEAK   = zone'da ama hala asagi trend       -> erken / yanlis pozitif olabilir
+isTopStrong    = isTopRaw    and not isUptrend
+isTopWeak      = isTopRaw    and isUptrend
+isBottomStrong = isBottomRaw and isUptrend
+isBottomWeak   = isBottomRaw and not isUptrend
+
+// Trend filter ON: sadece STRONG zone'lar effective top/bottom sayilir
+isTop    = useTrendFilter ? isTopStrong    : isTopRaw
+isBottom = useTrendFilter ? isBottomStrong : isBottomRaw
+
+// ============================================================================
+// COOLDOWN
+// ============================================================================
+
+var int lastTopBar    = na
+var int lastBottomBar = na
+
+enterTopRaw    = isTop    and not isTop[1]
+enterBottomRaw = isBottom and not isBottom[1]
+
+topCooldownOK    = na(lastTopBar)    or (bar_index - lastTopBar)    >= cooldownBars
+bottomCooldownOK = na(lastBottomBar) or (bar_index - lastBottomBar) >= cooldownBars
+
+enterTop    = enterTopRaw    and (not useCooldown or topCooldownOK)
+enterBottom = enterBottomRaw and (not useCooldown or bottomCooldownOK)
+
+if enterTop
+    lastTopBar    := bar_index
+if enterBottom
+    lastBottomBar := bar_index
+
+// Dot color: parlak = strong (veya trend filter off), sonuk = weak, mavi = mid
+dotColor = useTrendFilter ?
+              (isTopStrong    ? #00E676 :
+               isTopWeak      ? color.new(#00E676, 65) :
+               isBottomStrong ? #FF1744 :
+               isBottomWeak   ? color.new(#FF1744, 65) :
+                                #2979FF) :
+              (isTopRaw    ? #00E676 :
+               isBottomRaw ? #FF1744 :
+                             #2979FF)
+
+// ============================================================================
+// DIVERGENCE
+// ============================================================================
 
 piH = ta.pivothigh(cycleScore, divLookback, divLookback)
 piL = ta.pivotlow(cycleScore,  divLookback, divLookback)
@@ -112,7 +232,7 @@ plot(cycleScore, title="Cycle Line", color=color.new(#555555, 60), linewidth=1)
 plot(cycleScore, title="Cycle Dots", color=dotColor, linewidth=4, style=plot.style_circles)
 
 hlineTop    = hline(topZone,    title="Top Zone",    color=color.new(#00E676, 50), linestyle=hline.style_dashed)
-hlineMid    = hline(50,         title="Midline",     color=color.new(#888888, 60), linestyle=hline.style_dotted)
+hline(50,                       title="Midline",     color=color.new(#888888, 60), linestyle=hline.style_dotted)
 hlineBottom = hline(bottomZone, title="Bottom Zone", color=color.new(#FF1744, 50), linestyle=hline.style_dashed)
 
 hlineCap = hline(100, title="Cap",   display=display.none)
@@ -120,37 +240,40 @@ hlineFlr = hline(0,   title="Floor", display=display.none)
 fill(hlineCap, hlineTop,    color=showZoneFill ? color.new(#00E676, 92) : na, title="Top Zone Fill")
 fill(hlineBottom, hlineFlr, color=showZoneFill ? color.new(#FF1744, 92) : na, title="Bottom Zone Fill")
 
-// Divergence isaretleri - pivot bar'a geri offset edilir, cycle line uzerine konur
 plotshape(showDiv and bearDiv ? piH : na, title="Bearish Divergence", style=shape.triangledown,
           location=location.absolute, color=color.new(#FF6D00, 0), size=size.small, offset=-divLookback)
 plotshape(showDiv and bullDiv ? piL : na, title="Bullish Divergence", style=shape.triangleup,
           location=location.absolute, color=color.new(#00BCD4, 0), size=size.small, offset=-divLookback)
 
 // ============================================================================
-// BILGI ETIKETI (son barda)
+// LABEL
 // ============================================================================
-
-showLabel = input.bool(true, title="Show Current Score Label", group="Display")
 
 var label scoreLabel = na
 if barstate.islast and showLabel
     label.delete(scoreLabel)
-    txt = "Cycle: " + str.tostring(math.round(cycleScore)) + (isTop ? " (TOP)" : isBottom ? " (BOTTOM)" : " (MID)")
-    bg  = isTop ? color.new(#00E676, 20) : isBottom ? color.new(#FF1744, 20) : color.new(#2979FF, 20)
+    state = useTrendFilter ?
+                (isTopStrong    ? " (TOP)" :
+                 isTopWeak      ? " (top-weak)" :
+                 isBottomStrong ? " (BOTTOM)" :
+                 isBottomWeak   ? " (bottom-weak)" :
+                                  " (MID)") :
+                (isTopRaw    ? " (TOP)" :
+                 isBottomRaw ? " (BOTTOM)" :
+                               " (MID)")
+    trendTxt = isUptrend ? " | up" : " | down"
+    txt = "Cycle: " + str.tostring(math.round(cycleScore)) + state + trendTxt
+    bg  = (useTrendFilter and (isTopWeak or isBottomWeak)) ? color.new(#888888, 40) :
+          (isTopRaw    ? color.new(#00E676, 20) :
+           isBottomRaw ? color.new(#FF1744, 20) :
+                         color.new(#2979FF, 20))
     scoreLabel := label.new(bar_index, cycleScore, txt, style=label.style_label_left, color=bg, textcolor=color.white, size=size.small)
 
 // ============================================================================
 // UYARILAR
 // ============================================================================
 
-enterTop    = isTop and not isTop[1]
-exitTop     = not isTop and isTop[1]
-enterBottom = isBottom and not isBottom[1]
-exitBottom  = not isBottom and isBottom[1]
-
-alertcondition(enterTop,    title="Enter Top Zone",    message="CycleScope: Cycle TEPE bolgesine girdi {{ticker}} - Asiri isinma / euphoria")
-alertcondition(exitTop,     title="Exit Top Zone",     message="CycleScope: Cycle tepe bolgesinden cikti {{ticker}} - Sogumaya basladi")
-alertcondition(enterBottom, title="Enter Bottom Zone", message="CycleScope: Cycle DIP bolgesine girdi {{ticker}} - Kapitulasyon / asiri korku")
-alertcondition(exitBottom,  title="Exit Bottom Zone",  message="CycleScope: Cycle dip bolgesinden cikti {{ticker}} - Toparlanma basliyor")
-alertcondition(bearDiv,     title="Bearish Divergence", message="CycleScope: Bearish divergence - olasi tepe yaklasiyor {{ticker}} @ {{close}}")
-alertcondition(bullDiv,     title="Bullish Divergence", message="CycleScope: Bullish divergence - olasi dip yaklasiyor {{ticker}} @ {{close}}")
+alertcondition(enterTop,    title="Enter Top Zone",    message="CycleScope: TOP zone entered {{ticker}} @ {{close}}")
+alertcondition(enterBottom, title="Enter Bottom Zone", message="CycleScope: BOTTOM zone entered {{ticker}} @ {{close}}")
+alertcondition(bearDiv,     title="Bearish Divergence", message="CycleScope: Bearish divergence - olasi tepe {{ticker}} @ {{close}}")
+alertcondition(bullDiv,     title="Bullish Divergence", message="CycleScope: Bullish divergence - olasi dip {{ticker}} @ {{close}}")
