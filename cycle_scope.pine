@@ -1,0 +1,86 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Cycle Scope - Asset-agnostic long-term cycle position tracker
+// BTC, Altin, Hisse / Endeks - hepsinde calisir. On-chain alternatifi olarak fiyat-temelli.
+
+//@version=5
+indicator("Cycle Scope", shorttitle="CycleScope", overlay=false)
+
+// ============================================================================
+// AYARLAR
+// ============================================================================
+
+longMA       = input.int(200, title="Long MA Length", minval=50, maxval=500, group="Cycle",
+                  tooltip="Uzun donem referans hareketli ortalamasi. Fiyat bu MA'dan ne kadar saptigi olculur.")
+lookback     = input.int(500, title="Normalization Lookback", minval=100, maxval=2000, group="Cycle",
+                  tooltip="Yuzdelik dilim hesaplanirken kullanilan gecmis bar sayisi. Cycle uzunlugundan biraz fazla olmali.")
+topZone      = input.int(80, title="Top Zone (Euphoria)",   minval=60, maxval=99, group="Zones")
+bottomZone   = input.int(20, title="Bottom Zone (Capitulation)", minval=1, maxval=40, group="Zones")
+showZoneFill = input.bool(true, title="Shade Top/Bottom Zones", group="Display")
+smoothLen    = input.int(3, title="Output Smoothing", minval=1, maxval=20, group="Display",
+                  tooltip="Cycle skorunu yumusatmak icin EMA periyodu. 1 = yumusatma yok.")
+
+// ============================================================================
+// HESAPLAMA: Mayer Multiple + Percentile Rank
+// ============================================================================
+
+// Fiyatin uzun MA'ya orani (logaritmik = simetrik dagilim)
+longMean = ta.sma(close, longMA)
+ratio    = math.log(close / longMean)
+
+// Bu oranin gecmis lookback bar icinde yuzdelik dilimi (0-100)
+rawScore   = ta.percentrank(ratio, lookback)
+cycleScore = ta.ema(rawScore, smoothLen)
+
+// Zone tanimi
+isTop    = cycleScore >= topZone
+isBottom = cycleScore <= bottomZone
+isMid    = not isTop and not isBottom
+
+// Renk: yesil = top/euphoria, kirmizi = bottom/capitulation, mavi = mid
+dotColor = isTop ? #00E676 : isBottom ? #FF1744 : #2979FF
+
+// ============================================================================
+// CIZIM
+// ============================================================================
+
+// Cycle skoru - cizgi + noktali gosterim
+plot(cycleScore, title="Cycle Line", color=color.new(#555555, 60), linewidth=1)
+plot(cycleScore, title="Cycle Dots", color=dotColor, linewidth=4, style=plot.style_circles)
+
+// Seviye cizgileri
+hlineTop    = hline(topZone,    title="Top Zone",    color=color.new(#00E676, 50), linestyle=hline.style_dashed)
+hlineMid    = hline(50,         title="Midline",     color=color.new(#888888, 60), linestyle=hline.style_dotted)
+hlineBottom = hline(bottomZone, title="Bottom Zone", color=color.new(#FF1744, 50), linestyle=hline.style_dashed)
+
+// Bolge golgelemesi
+hlineCap = hline(100, title="Cap",   display=display.none)
+hlineFlr = hline(0,   title="Floor", display=display.none)
+fill(hlineCap, hlineTop,    color=showZoneFill ? color.new(#00E676, 92) : na, title="Top Zone Fill")
+fill(hlineBottom, hlineFlr, color=showZoneFill ? color.new(#FF1744, 92) : na, title="Bottom Zone Fill")
+
+// ============================================================================
+// BILGI ETIKETI (son barda)
+// ============================================================================
+
+showLabel = input.bool(true, title="Show Current Score Label", group="Display")
+
+var label scoreLabel = na
+if barstate.islast and showLabel
+    label.delete(scoreLabel)
+    txt = "Cycle: " + str.tostring(math.round(cycleScore)) + (isTop ? " (TOP)" : isBottom ? " (BOTTOM)" : " (MID)")
+    bg  = isTop ? color.new(#00E676, 20) : isBottom ? color.new(#FF1744, 20) : color.new(#2979FF, 20)
+    scoreLabel := label.new(bar_index, cycleScore, txt, style=label.style_label_left, color=bg, textcolor=color.white, size=size.small)
+
+// ============================================================================
+// UYARILAR
+// ============================================================================
+
+enterTop    = isTop and not isTop[1]
+exitTop     = not isTop and isTop[1]
+enterBottom = isBottom and not isBottom[1]
+exitBottom  = not isBottom and isBottom[1]
+
+alertcondition(enterTop,    title="Enter Top Zone",    message="CycleScope: Cycle TEPE bolgesine girdi {{ticker}} - Asiri isinma / euphoria")
+alertcondition(exitTop,     title="Exit Top Zone",     message="CycleScope: Cycle tepe bolgesinden cikti {{ticker}} - Sogumaya basladi")
+alertcondition(enterBottom, title="Enter Bottom Zone", message="CycleScope: Cycle DIP bolgesine girdi {{ticker}} - Kapitulasyon / asiri korku")
+alertcondition(exitBottom,  title="Exit Bottom Zone",  message="CycleScope: Cycle dip bolgesinden cikti {{ticker}} - Toparlanma basliyor")
