@@ -66,10 +66,18 @@ divLookback = input.int(5, "Pivot Lookback", minval=2, maxval=20, group="Diverge
 zoneFilter  = input.bool(true, "Filter to Near Extreme Zones", group="Divergence")
 
 // ============================================================================
+// AYARLAR - REVERSAL CANDLES
+// ============================================================================
+
+showReversal  = input.bool(true, "Show Reversal Candles in Zone", group="Reversal Candles", tooltip="Tepe/dip bolgesinde donus mumlarini (uzun fitil veya engulfing) elmas isaretiyle gosterir. Divergence'tan farkli, daha hizli sinyal verir.")
+reversalRange = input.int(8, "Zone Tolerance (points)", minval=0, maxval=20, group="Reversal Candles", tooltip="Zone'a tam girmemis ama yakindaki donus mumlarini yakalamak icin tampon. Yuksek = daha fazla sinyal.")
+wickRatio     = input.float(2.0, "Min Wick / Body Ratio", minval=1.0, maxval=5.0, step=0.1, group="Reversal Candles", tooltip="Fitilin govdeye orani. 2.0 = fitil govdeden 2 kat uzun olmali.")
+
+// ============================================================================
 // AYARLAR - DISPLAY
 // ============================================================================
 
-showLabel = input.bool(true, "Show Current Score Label", group="Display")
+showLabel = input.bool(false, "Show Current Score Label", group="Display", tooltip="Grafigin sag kenarinda Cycle: XX yazisini gosterir. Kapatmak son barlari daha iyi gormeyi saglar.")
 
 // ============================================================================
 // TIMEFRAME-ADAPTIVE PARAMETRELER
@@ -214,6 +222,33 @@ if not na(piL)
     prevPiLPrice := pivotPrice
 
 // ============================================================================
+// REVERSAL CANDLE DETECTION (zone'da donus mumlari)
+// ============================================================================
+
+body      = math.abs(close - open)
+upperWick = high - math.max(close, open)
+lowerWick = math.min(close, open) - low
+avgBody   = ta.sma(body, 20)
+smallBody = body < avgBody * 1.5
+
+// Bearish patterns: uzun ust fitil VEYA bearish engulfing
+shootingStar  = upperWick > wickRatio * body and smallBody
+bearEngulfing = close < open and close[1] > open[1] and open >= close[1] and close <= open[1]
+bearReversal  = shootingStar or bearEngulfing
+
+// Bullish patterns: uzun alt fitil VEYA bullish engulfing
+hammerCandle  = lowerWick > wickRatio * body and smallBody
+bullEngulfing = close > open and close[1] < open[1] and open <= close[1] and close >= open[1]
+bullReversal  = hammerCandle or bullEngulfing
+
+// Zone yakinligi (tam zone disi olsa da reversalRange kadar yakininda olsun)
+nearTopZone = cycleScore >= (topZone - reversalRange)
+nearBotZone = cycleScore <= (bottomZone + reversalRange)
+
+topReversalSignal = showReversal and bearReversal and nearTopZone
+botReversalSignal = showReversal and bullReversal and nearBotZone
+
+// ============================================================================
 // CIZIM
 // ============================================================================
 
@@ -231,6 +266,10 @@ fill(hlineBottom, hlineFlr, color=showZoneFill ? color.new(#FF1744, 92) : na, ti
 
 plotshape(showDiv and bearDiv ? piH : na, "Bearish Divergence", shape.triangledown, location.absolute, color.new(#FF6D00, 0), size=size.small, offset=-divLookback)
 plotshape(showDiv and bullDiv ? piL : na, "Bullish Divergence", shape.triangleup,   location.absolute, color.new(#00BCD4, 0), size=size.small, offset=-divLookback)
+
+// Reversal candle isaretleri (zone yakininda donus mumu)
+plotshape(topReversalSignal ? cycleScore : na, "Top Reversal Candle",    shape.diamond, location.absolute, color.new(#FF6D00, 0), size=size.tiny)
+plotshape(botReversalSignal ? cycleScore : na, "Bottom Reversal Candle", shape.diamond, location.absolute, color.new(#00BCD4, 0), size=size.tiny)
 
 // ============================================================================
 // LABEL
@@ -252,5 +291,7 @@ if barstate.islast and showLabel
 
 alertcondition(enterTop,    title="Enter Top Zone",    message="CycleScope: TOP zone entered {{ticker}} @ {{close}}")
 alertcondition(enterBottom, title="Enter Bottom Zone", message="CycleScope: BOTTOM zone entered {{ticker}} @ {{close}}")
-alertcondition(bearDiv,     title="Bearish Divergence", message="CycleScope: Bearish divergence - olasi tepe {{ticker}} @ {{close}}")
-alertcondition(bullDiv,     title="Bullish Divergence", message="CycleScope: Bullish divergence - olasi dip {{ticker}} @ {{close}}")
+alertcondition(bearDiv,           title="Bearish Divergence",     message="CycleScope: Bearish divergence - olasi tepe {{ticker}} @ {{close}}")
+alertcondition(bullDiv,           title="Bullish Divergence",     message="CycleScope: Bullish divergence - olasi dip {{ticker}} @ {{close}}")
+alertcondition(topReversalSignal, title="Top Reversal Candle",    message="CycleScope: Top zone'da donus mumu - olasi tepe {{ticker}} @ {{close}}")
+alertcondition(botReversalSignal, title="Bottom Reversal Candle", message="CycleScope: Bottom zone'da donus mumu - olasi dip {{ticker}} @ {{close}}")

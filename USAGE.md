@@ -173,14 +173,36 @@ Aynı yöndeki sinyaller arasında minimum bar mesafesi (default 60). Cycle gös
 
 **Önemli:** Pivot tespiti `divLookback` (default 5) bar gecikme gerektirir. Üçgen ekrana geldiğinde fiili pivot anından 5 bar geç olur — bu kaçınılmaz, pivotun doğası gereği.
 
+### Reversal candles (zone'da dönüş mumları)
+
+Divergence'tan farklı, daha hızlı bir sinyal. Cycle skoru zone yakınında (default ±8 puan tolerans) iken klasik dönüş mum formasyonu görülürse elmas işaretiyle gösterilir. Divergence pivot beklerken, reversal candle anında ateşlenir.
+
+| İşaret | Patern | Anlam |
+|---|---|---|
+| 🔶 Turuncu elmas (top zone) | Shooting star (uzun üst fitil) veya bearish engulfing | Alıcı tükeniyor, tepe yakın |
+| 🔷 Cyan elmas (bottom zone) | Hammer (uzun alt fitil) veya bullish engulfing | Satıcı tükeniyor, dip yakın |
+
+**Pattern tanımları:**
+- **Shooting star / Hammer**: Üst/alt fitil gövdeden en az `wickRatio` (default 2.0) kat uzun, gövde son 20 barın ortalamasından küçük
+- **Bearish engulfing**: Bugünkü kırmızı mum, dünkü yeşil mumu tamamen sarıyor
+- **Bullish engulfing**: Bugünkü yeşil mum, dünkü kırmızı mumu tamamen sarıyor
+
+| Input | Default | Açıklama |
+|---|---|---|
+| Show Reversal Candles in Zone | açık | Elmas işaretlerini göster |
+| Zone Tolerance (points) | 8 | Zone'a girmemiş ama yakındaki mumları yakalamak için tampon |
+| Min Wick / Body Ratio | 2.0 | Fitilin gövdeye oranı (shooting star / hammer için) |
+
 ### Alertler
 
 | Alert | Tetiklenme |
 |---|---|
 | Enter Top Zone | Effective top zone'a girildi (trend filter + cooldown sonrası) |
 | Enter Bottom Zone | Effective bottom zone'a girildi |
-| Bearish Divergence | Olası tepe formasyonu |
-| Bullish Divergence | Olası dip formasyonu |
+| Bearish Divergence | Olası tepe formasyonu (pivot bazlı, gecikmeli) |
+| Bullish Divergence | Olası dip formasyonu (pivot bazlı, gecikmeli) |
+| Top Reversal Candle | Top zone'da bearish dönüş mumu (anlık) |
+| Bottom Reversal Candle | Bottom zone'da bullish dönüş mumu (anlık) |
 
 ---
 
