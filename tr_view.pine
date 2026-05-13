@@ -1,0 +1,188 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Cloud Trend Tracker - Bulut Tabanli Trend Takip
+// BTC, Gold, NASDAQ/S&P icin optimize edilmis
+
+//@version=5
+indicator("Cloud Trend Tracker", shorttitle="CloudTrend", overlay=true)
+
+// ============================================================================
+// ANA AYARLAR
+// ============================================================================
+
+assetType = input.string("Crypto", title="Asset Type", options=["Crypto", "Gold/Commodities", "Stocks/Index"], group="Settings")
+
+// Asset-adaptive SuperTrend parametreleri
+getSTFactor() =>
+    switch assetType
+        "Crypto"          => 3.0
+        "Gold/Commodities" => 2.5
+        "Stocks/Index"     => 2.5
+        => 3.0
+
+getSTPeriod() =>
+    switch assetType
+        "Crypto"          => 10
+        "Gold/Commodities" => 14
+        "Stocks/Index"     => 10
+        => 10
+
+// ============================================================================
+// FAZ 1: CEKIRDEK BULUT MOTORU
+// ============================================================================
+
+// Dual EMA Cloud
+emaFast = ta.ema(close, 21)
+emaSlow = ta.ema(close, 55)
+ema200  = ta.ema(close, 200)
+
+isBullCloud = emaFast >= emaSlow
+
+// Bulut cizimi
+pFast = plot(emaFast, "EMA 21", color=color.new(color.white, 100))
+pSlow = plot(emaSlow, "EMA 55", color=color.new(color.white, 100))
+
+bullCloudColor = color.new(#00BCD4, 65)
+bearCloudColor = color.new(#E91E63, 65)
+fill(pFast, pSlow, color=isBullCloud ? bullCloudColor : bearCloudColor, title="Cloud Fill")
+
+// Bulut kenar cizgileri
+plot(emaFast, "Cloud Fast Edge", color=isBullCloud ? color.new(#00BCD4, 30) : color.new(#E91E63, 30), linewidth=2)
+plot(emaSlow, "Cloud Slow Edge", color=isBullCloud ? color.new(#00BCD4, 50) : color.new(#E91E63, 50), linewidth=1)
+
+// EMA 200
+plot(ema200, "EMA 200", color=color.new(#FFFFFF, 40), linewidth=2, style=plot.style_line)
+
+// ============================================================================
+// FAZ 2: BULUT ANALIZ + DAHILI GOSTERGELER
+// ============================================================================
+
+// --- Cloud Metrikleri ---
+cloudWidth    = (emaFast - emaSlow) / close * 100
+cloudWidthAbs = math.abs(cloudWidth)
+cloudWidthSMA = ta.sma(cloudWidthAbs, 20)
+
+isCloudExpanding  = cloudWidthAbs > cloudWidthAbs[1] and cloudWidthAbs > cloudWidthSMA
+isCloudContracting = cloudWidthAbs < cloudWidthAbs[1] and cloudWidthAbs < cloudWidthSMA
+isCloudCrossing   = (isBullCloud and not isBullCloud[1]) or (not isBullCloud and isBullCloud[1])
+
+cloudUpper = math.max(emaFast, emaSlow)
+cloudLower = math.min(emaFast, emaSlow)
+isPriceAboveCloud = close > cloudUpper
+isPriceBelowCloud = close < cloudLower
+isPriceInCloud    = not isPriceAboveCloud and not isPriceBelowCloud
+
+// --- SuperTrend ---
+stFactor = getSTFactor()
+stPeriod = getSTPeriod()
+[superTrend, stDirection] = ta.supertrend(stFactor, stPeriod)
+stBullish  = stDirection < 0
+stBearish  = stDirection > 0
+stFlipBull = stBullish and not stBullish[1]
+stFlipBear = stBearish and not stBearish[1]
+
+stColor = stBullish ? color.new(#00E676, 40) : color.new(#FF1744, 40)
+plot(superTrend, "SuperTrend", color=stColor, linewidth=1, style=plot.style_line)
+
+// --- ADX (dahili, chart'ta gosterilmez) ---
+trueRange      = ta.tr
+plusDM         = high - high[1] > low[1] - low ? math.max(high - high[1], 0) : 0
+minusDM        = low[1] - low > high - high[1] ? math.max(low[1] - low, 0) : 0
+smoothedTR     = ta.rma(trueRange, 14)
+smoothedPlusDM = ta.rma(plusDM, 14)
+smoothedMinusDM = ta.rma(minusDM, 14)
+plusDI          = smoothedPlusDM / smoothedTR * 100
+minusDI        = smoothedMinusDM / smoothedTR * 100
+dx             = math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100
+adxValue       = ta.rma(dx, 14)
+
+isStrongTrend    = adxValue > 25
+isSidewaysMarket = adxValue < 20
+
+// ============================================================================
+// FAZ 3: BASITLESTIRILMIS DESTEK / DIRENC
+// ============================================================================
+
+showSR = input.bool(true, title="Show S/R Levels", group="Display")
+
+// Onceki hafta High/Low
+prevWeekHigh = request.security(syminfo.tickerid, "W", high[1], barmerge.gaps_off, barmerge.lookahead_on)
+prevWeekLow  = request.security(syminfo.tickerid, "W", low[1], barmerge.gaps_off, barmerge.lookahead_on)
+
+// Swing High/Low (50 bar)
+swingHigh = ta.highest(high, 50)
+swingLow  = ta.lowest(low, 50)
+
+// S/R cizgileri -- ince, kesikli, temiz
+plot(showSR ? prevWeekHigh : na, "Prev Week High", color=color.new(#FF6D00, 60), linewidth=1, style=plot.style_stepline_diamond)
+plot(showSR ? prevWeekLow : na,  "Prev Week Low",  color=color.new(#2979FF, 60), linewidth=1, style=plot.style_stepline_diamond)
+plot(showSR and swingHigh != prevWeekHigh ? swingHigh : na, "Swing High", color=color.new(#FF6D00, 75), linewidth=1, style=plot.style_cross)
+plot(showSR and swingLow != prevWeekLow ? swingLow : na,   "Swing Low",  color=color.new(#2979FF, 75), linewidth=1, style=plot.style_cross)
+
+// ============================================================================
+// FAZ 4: KOMPAKT BILGI TABLOSU (SLIM 3-SATIR)
+// ============================================================================
+
+showTable = input.bool(true, title="Show Info Table", group="Display")
+
+var table infoTable = table.new(position.top_right, 2, 3, border_width=1, border_color=color.new(#333333, 0))
+
+if showTable and barstate.islast
+
+    // --- Satir 0: Genel Durum ---
+    overallBull = isBullCloud and isPriceAboveCloud and stBullish
+    overallBear = not isBullCloud and isPriceBelowCloud and stBearish
+    statusText  = overallBull ? "BULL" : overallBear ? "BEAR" : "TRANSITION"
+    statusBg    = overallBull ? color.new(#00BCD4, 20) : overallBear ? color.new(#E91E63, 20) : color.new(#FF9800, 20)
+
+    table.cell(infoTable, 0, 0, "Status", bgcolor=color.new(#1a1a1a, 0), text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 0, statusText, bgcolor=statusBg, text_color=color.white, text_size=size.small)
+
+    // --- Satir 1: Fiyat Konumu ---
+    posText = isPriceAboveCloud ? "ABOVE CLOUD" : isPriceBelowCloud ? "BELOW CLOUD" : "IN CLOUD"
+    posBg   = isPriceAboveCloud ? color.new(#00BCD4, 50) : isPriceBelowCloud ? color.new(#E91E63, 50) : color.new(#FF9800, 40)
+
+    table.cell(infoTable, 0, 1, "Price", bgcolor=color.new(#1a1a1a, 0), text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 1, posText, bgcolor=posBg, text_color=color.white, text_size=size.small)
+
+    // --- Satir 2: Trend Gucu (ADX) ---
+    trendText = isStrongTrend ? "STRONG" : isSidewaysMarket ? "SIDEWAYS" : "MODERATE"
+    trendBg   = isStrongTrend ? color.new(#00E676, 50) : isSidewaysMarket ? color.new(#FF9800, 50) : color.new(#555555, 40)
+
+    table.cell(infoTable, 0, 2, "Strength", bgcolor=color.new(#1a1a1a, 0), text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 2, trendText + " (ADX:" + str.tostring(math.round(adxValue)) + ")", bgcolor=trendBg, text_color=color.white, text_size=size.small)
+
+// ============================================================================
+// FAZ 5: UYARILAR (ALERTS)
+// ============================================================================
+
+// Cloud crossover -- trend degisimi
+cloudCrossBull = isBullCloud and not isBullCloud[1]
+cloudCrossBear = not isBullCloud and isBullCloud[1]
+
+// Fiyat buluta giriyor
+priceEntersCloud = isPriceInCloud and not isPriceInCloud[1]
+
+// EMA 200 kirilmasi
+ema200CrossAbove = close > ema200 and close[1] <= ema200[1]
+ema200CrossBelow = close < ema200 and close[1] >= ema200[1]
+
+alertcondition(cloudCrossBull,   title="Cloud Bullish Cross",  message="CloudTrend: Bulut YUKSELIS'e dondu {{ticker}} @ {{close}}")
+alertcondition(cloudCrossBear,   title="Cloud Bearish Cross",  message="CloudTrend: Bulut DUSUS'e dondu {{ticker}} @ {{close}}")
+alertcondition(priceEntersCloud, title="Price Enters Cloud",   message="CloudTrend: Fiyat buluta girdi {{ticker}} @ {{close}} - Kararsiz bolge")
+alertcondition(ema200CrossAbove, title="EMA 200 Break Up",     message="CloudTrend: Fiyat 200 EMA ustune cikti {{ticker}} @ {{close}}")
+alertcondition(ema200CrossBelow, title="EMA 200 Break Down",   message="CloudTrend: Fiyat 200 EMA altina dustü {{ticker}} @ {{close}}")
+alertcondition(stFlipBull,       title="SuperTrend Bull Flip",  message="CloudTrend: SuperTrend YUKSELIS'e dondu {{ticker}} @ {{close}}")
+alertcondition(stFlipBear,       title="SuperTrend Bear Flip",  message="CloudTrend: SuperTrend DUSUS'e dondu {{ticker}} @ {{close}}")
+
+// Chart uzerinde cloud crossover isaretleri (kucuk, temiz)
+plotshape(cloudCrossBull, title="Cloud Bull Cross", style=shape.diamond, location=location.belowbar, color=color.new(#00BCD4, 20), size=size.tiny)
+plotshape(cloudCrossBear, title="Cloud Bear Cross", style=shape.diamond, location=location.abovebar, color=color.new(#E91E63, 20), size=size.tiny)
+
+// ============================================================================
+// MUMU RENKLENDIRME (opsiyonel)
+// ============================================================================
+
+showBarColors = input.bool(false, title="Color Candles by Trend", group="Display")
+
+candleColor = isPriceAboveCloud and isBullCloud ? color.new(#00BCD4, 20) : isPriceBelowCloud and not isBullCloud ? color.new(#E91E63, 20) : color.new(#FF9800, 30)
+barcolor(showBarColors ? candleColor : na)
