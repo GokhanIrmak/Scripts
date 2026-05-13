@@ -1,6 +1,7 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // Overbought / Oversold Tracker
-// RSI veya Stoch RSI tabanli, ayri panelde noktali gosterim (CloudTrend ile birlikte kullanim icin)
+// RSI veya Stoch RSI, chart TF'sinde aktif + opsiyonel haftalik referans cizgisi
+// CloudTrend ile birlikte kullanim icin
 
 //@version=6
 indicator("OB/OS Tracker", shorttitle="OB/OS", overlay=false)
@@ -9,43 +10,56 @@ indicator("OB/OS Tracker", shorttitle="OB/OS", overlay=false)
 // AYARLAR
 // ============================================================================
 
-oscType  = input.string("RSI", "Oscillator Type", options=["RSI", "Stoch RSI"], group="Oscillator", tooltip="RSI: klasik, daha az ama guclu sinyal. Stoch RSI: RSI'in kendi son N barina gore yuzdelik konumu - cok daha hareketli, sik sik OB/OS bolgesine girer.")
+oscType = input.string("RSI", "Oscillator Type", options=["RSI", "Stoch RSI"], group="Oscillator", tooltip="RSI: klasik, daha az ama guclu sinyal. Stoch RSI: cok daha hareketli.")
 
-rsiLen   = input.int(14, "RSI Length",        minval=2, maxval=50, group="Oscillator")
-stochLen = input.int(14, "Stoch Length",      minval=2, maxval=50, group="Oscillator", tooltip="Sadece Stoch RSI modunda kullanilir.")
-smoothK  = input.int(3,  "K Smoothing",       minval=1, maxval=10, group="Oscillator", tooltip="Sadece Stoch RSI modunda kullanilir. Stoch RSI K cizgisinin yumusatma periyodu.")
+rsiLen   = input.int(14, "RSI Length",   minval=2, maxval=50, group="Oscillator")
+stochLen = input.int(14, "Stoch Length", minval=2, maxval=50, group="Oscillator", tooltip="Sadece Stoch RSI modunda.")
+smoothK  = input.int(3,  "K Smoothing",  minval=1, maxval=10, group="Oscillator", tooltip="Sadece Stoch RSI modunda.")
 
 obLevel      = input.int(70, "Overbought Level", minval=50, maxval=95, group="Levels", tooltip="RSI icin 70, Stoch RSI icin 80 onerilir.")
 osLevel      = input.int(30, "Oversold Level",   minval=5,  maxval=50, group="Levels", tooltip="RSI icin 30, Stoch RSI icin 20 onerilir.")
 showZoneFill = input.bool(true, "Shade OB/OS Zones", group="Display")
 
+showWeeklyRef = input.bool(true, "Show Weekly Reference Line", group="Weekly Reference", tooltip="Acikken her TF'de haftalik osilatoru ince referans cizgisi olarak gosterir. Cycle context'i icin. Haftalik chart'ta ana cizgiyle ortusur, gorunmez.")
+weeklyOpacity = input.int(25, "Weekly Reference Opacity", minval=0, maxval=80, group="Weekly Reference", tooltip="0 = tam opak, 80 = neredeyse seffaf.")
+
 // ============================================================================
-// HESAPLAMA
+// HESAPLAMA - chart TF + haftalik
 // ============================================================================
 
-rsiValue = ta.rsi(close, rsiLen)
+calcOsc() =>
+    r       = ta.rsi(close, rsiLen)
+    sRaw    = ta.stoch(r, r, r, stochLen)
+    sK      = ta.sma(sRaw, smoothK)
+    oscType == "Stoch RSI" ? sK : r
 
-// Stoch RSI: RSI'in son stochLen barindaki yuzdelik konumu, sonra SMA ile yumusatilir
-stochRSIRaw = ta.stoch(rsiValue, rsiValue, rsiValue, stochLen)
-stochRSIK   = ta.sma(stochRSIRaw, smoothK)
+chartOsc  = calcOsc()
+weeklyOsc = request.security(syminfo.tickerid, "W", calcOsc(), lookahead=barmerge.lookahead_off)
 
-// Secime gore ana osilator degeri
-oscValue = oscType == "Stoch RSI" ? stochRSIK : rsiValue
-oscName  = oscType == "Stoch RSI" ? "Stoch RSI" : "RSI"
+isOverbought = chartOsc >= obLevel
+isOversold   = chartOsc <= osLevel
 
-isOverbought = oscValue >= obLevel
-isOversold   = oscValue <= osLevel
+isWeeklyOB   = weeklyOsc >= obLevel
+isWeeklyOS   = weeklyOsc <= osLevel
 
-// Renk: yesil = overbought, kirmizi = oversold, mavi = mid
+// Renkler
 dotColor = isOverbought ? #00E676 : isOversold ? #FF1744 : #2979FF
+
+// Haftalik referans cizgisi: kendi zone'una gore renklenir, zone disinda beyaz
+weeklyRefColor = isWeeklyOB ? color.new(#00E676, weeklyOpacity) : isWeeklyOS ? color.new(#FF1744, weeklyOpacity) : color.new(color.white, weeklyOpacity)
 
 // ============================================================================
 // CIZIM
 // ============================================================================
 
-plot(oscValue, title="Oscillator Line", color=color.new(#555555, 60), linewidth=1)
-plot(oscValue, title="Oscillator Dots", color=dotColor, linewidth=4, style=plot.style_circles)
+// Haftalik referans (ana cizginin altinda, ince)
+plot(showWeeklyRef ? weeklyOsc : na, "Weekly Reference", color=weeklyRefColor, linewidth=1)
 
+// Ana osilator (chart TF) - cizgi + noktali
+plot(chartOsc, "Oscillator Line", color=color.new(#555555, 60), linewidth=1)
+plot(chartOsc, "Oscillator Dots", color=dotColor, linewidth=4, style=plot.style_circles)
+
+// Seviye cizgileri
 hlineOB  = hline(obLevel, "Overbought", color=color.new(#00E676, 50), linestyle=hline.style_dashed)
 hline(50,                 "Midline",    color=color.new(#888888, 60), linestyle=hline.style_dotted)
 hlineOS  = hline(osLevel, "Oversold",   color=color.new(#FF1744, 50), linestyle=hline.style_dashed)
@@ -64,7 +78,16 @@ exitOB  = not isOverbought and isOverbought[1]
 enterOS = isOversold and not isOversold[1]
 exitOS  = not isOversold and isOversold[1]
 
-alertcondition(enterOB, title="Enter Overbought", message="OB/OS: Asiri alim bolgesine girdi {{ticker}}")
-alertcondition(exitOB,  title="Exit Overbought",  message="OB/OS: Asiri alim bolgesinden cikti {{ticker}}")
-alertcondition(enterOS, title="Enter Oversold",   message="OB/OS: Asiri satim bolgesine girdi {{ticker}}")
-alertcondition(exitOS,  title="Exit Oversold",    message="OB/OS: Asiri satim bolgesinden cikti {{ticker}}")
+enterWeeklyOB = isWeeklyOB and not isWeeklyOB[1]
+exitWeeklyOB  = not isWeeklyOB and isWeeklyOB[1]
+enterWeeklyOS = isWeeklyOS and not isWeeklyOS[1]
+exitWeeklyOS  = not isWeeklyOS and isWeeklyOS[1]
+
+alertcondition(enterOB,       title="Enter Overbought (Chart)", message="OB/OS: Chart TF asiri alim {{ticker}}")
+alertcondition(exitOB,        title="Exit Overbought (Chart)",  message="OB/OS: Chart TF asiri alimdan cikti {{ticker}}")
+alertcondition(enterOS,       title="Enter Oversold (Chart)",   message="OB/OS: Chart TF asiri satim {{ticker}}")
+alertcondition(exitOS,        title="Exit Oversold (Chart)",    message="OB/OS: Chart TF asiri satimdan cikti {{ticker}}")
+alertcondition(enterWeeklyOB, title="Enter Overbought (Weekly)", message="OB/OS: HAFTALIK asiri alim - cycle tepesi {{ticker}}")
+alertcondition(exitWeeklyOB,  title="Exit Overbought (Weekly)",  message="OB/OS: Haftalik asiri alimdan cikti {{ticker}}")
+alertcondition(enterWeeklyOS, title="Enter Oversold (Weekly)",   message="OB/OS: HAFTALIK asiri satim - cycle dibi {{ticker}}")
+alertcondition(exitWeeklyOS,  title="Exit Oversold (Weekly)",    message="OB/OS: Haftalik asiri satimdan cikti {{ticker}}")

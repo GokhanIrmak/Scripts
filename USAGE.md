@@ -1,20 +1,21 @@
 # CloudTrend Sistemi - Kullanım Kılavuzu
 
-Üç ayrı TradingView göstergesinden oluşan bir trend & cycle takip sistemidir. Crypto, altın/emtia ve hisse/endeks için optimize edilmiştir.
+İki TradingView göstergesinden oluşan trend & cycle takip sistemidir. Crypto, altın/emtia ve hisse/endeks için optimize edilmiştir.
 
 ---
 
 ## 1. Genel Bakış
 
-Sistem üç katmanlı zaman ölçeği üzerinde çalışır. Her gösterge farklı bir soruya cevap verir:
+Sistem iki göstergeden oluşur. Her biri farklı bir soruya cevap verir:
 
-| Gösterge | Dosya | Zaman ölçeği | Sorduğu soru |
-|---|---|---|---|
-| **CloudTrend** | `tr_view.pine` | Anlık | Trend ne yönde? Fiyat hangi seviyede? |
-| **CycleScope** | `cycle_scope.pine` | Uzun vade (aylar) | Büyük döngünün neresindeyiz? |
-| **OB/OS Tracker** | `ob_os_tracker.pine` | Kısa vade (günler) | Şu an aşırı alım/satım var mı? |
+| Gösterge | Dosya | Sorduğu soru |
+|---|---|---|
+| **CloudTrend** | `tr_view.pine` | Trend ne yönde? Fiyat hangi seviyede? |
+| **OB/OS Tracker** | `ob_os_tracker.pine` | Şu an aşırı alım/satım var mı? Haftalık cycle nerede? |
 
-Üçü ayrı indicator olarak TradingView'e eklenir, aynı chart'ta birlikte çalışır.
+İkisi ayrı indicator olarak TradingView'e eklenir, aynı chart'ta birlikte çalışır.
+
+> **Not:** OB/OS Tracker, opsiyonel haftalık referans çizgisiyle iki katmanlı çalışır: aktif çizgi chart'ın TF'sini gösterir (timing için), ince referans çizgisi haftalık RSI'ı her TF'de gösterir (cycle context için). Yani ayrı bir "cycle göstergesi"ne gerek kalmaz.
 
 ---
 
@@ -66,170 +67,36 @@ Sistem üç katmanlı zaman ölçeği üzerinde çalışır. Her gösterge farkl
 
 ---
 
-## 3. CycleScope (`cycle_scope.pine`)
+## 3. OB/OS Tracker (`ob_os_tracker.pine`)
 
-**Alt panel** — uzun dönem döngü pozisyonunu 0-100 skor olarak gösterir.
-
-### Ne ölçer
-
-> "Şu an, geçmiş döngüye göre neredeyiz?"
-
-Üç bileşeni opsiyonel olarak ağırlıklandırılmış şekilde birleştirir (composite mode), veya sadece Mayer ile çalışır (sade mode).
-
-- **Mayer** (default %50): Fiyatın uzun dönem ortalamasından sapması (klasik Mayer Multiple mantığı)
-- **MTF RSI** (default %25): Günlük + Haftalık + Chart RSI ortalaması — çok katmanlı momentum
-- **Momentum/ROC** (default %25): Normalize edilmiş rate-of-change
-
-Sonuç 0-100 arası bir skora çevrilir. **Overbought/oversold değildir** — döngü pozisyonudur.
-
-### Skor yorumu
-
-| Skor | Renk | Bölge | Anlam |
-|---|---|---|---|
-| 80-100 | 🟢 Yeşil | TOP | Geçmiş döngüde böyle yerlerden düşüş başlamıştı — dikkat |
-| 60-80 | 🔵 Mavi | Üst orta | Trend yukarı ama tepe yaklaşıyor |
-| 40-60 | 🔵 Mavi | Nötr | Döngünün belirsiz/geçiş bölgesi |
-| 20-40 | 🔵 Mavi | Alt orta | Düşüş hâkim ama dip yaklaşıyor |
-| 0-20 | 🔴 Kırmızı | BOTTOM | Geçmiş döngüde böyle yerlerden yükseliş başlamıştı — fırsat |
-
-### Trend filter — Güçlü / Zayıf ayrımı
-
-Trend filter açıkken (default), zone'a girilse bile trend uyumu kontrol edilir:
-
-| Durum | Anlam | Renk |
-|---|---|---|
-| Top + downtrend | **STRONG TOP** — trend dönüş başladı, cycle teyit ediyor | 🟢 Parlak yeşil |
-| Top + uptrend | **WEAK TOP** — cycle aşırı ama trend hâlâ yukarı, erken olabilir | 🟢 Sönük yeşil |
-| Bottom + uptrend | **STRONG BOTTOM** — trend dönüş başladı, cycle teyit ediyor | 🔴 Parlak kırmızı |
-| Bottom + downtrend | **WEAK BOTTOM** — cycle aşırı ama trend hâlâ aşağı, erken olabilir | 🔴 Sönük kırmızı |
-
-Trend filter kapalıyken bu ayrım yok, ham zone gösterilir.
-
-### Cooldown
-
-Aynı yöndeki sinyaller arasında minimum bar mesafesi (default 60). Cycle göstergesinin doğası gereği zone'da uzun süre kalıp her bar yeniden tetikleme spam'ini önler.
-
-### Inputlar
-
-#### Cycle grubu
-| Input | Default | Açıklama |
-|---|---|---|
-| Auto-Adapt to Timeframe | açık | Chart TF'ine göre longMA ve lookback otomatik seçilir |
-| Long MA Length (manual) | 200 | Manuel mod: uzun MA periyodu |
-| Lookback (manual) | 300 | Manuel mod: normalizasyon penceresi |
-| Normalization | Z-Score | Z-Score / Percentile Rank seçimi |
-| Output Smoothing | 8 | HMA yumuşatma periyodu (1 = yumuşatma yok) |
-
-#### Composite grubu
-| Input | Default | Açıklama |
-|---|---|---|
-| Use Composite Scoring | açık | Açık: 3 bileşen birleşik. Kapalı: sadece Mayer (sade mod) |
-| Mayer weight | 0.50 | Mayer bileşeni ağırlığı |
-| MTF RSI weight | 0.25 | RSI bileşeni ağırlığı |
-| Momentum/ROC weight | 0.25 | Momentum bileşeni ağırlığı |
-
-#### MTF RSI grubu
-| Input | Default | Açıklama |
-|---|---|---|
-| RSI Length | 14 | RSI periyodu |
-| Use Daily RSI | açık | Günlük TF RSI'ı dahil et |
-| Use Weekly RSI | açık | Haftalık TF RSI'ı dahil et |
-| Use Current TF RSI | açık | Chart'ın kendi TF RSI'ı dahil et |
-
-#### Zones / Trend Filter / Cooldown grupları
-| Input | Default | Açıklama |
-|---|---|---|
-| Top Zone | 80 | Tepe bölgesi eşiği |
-| Bottom Zone | 20 | Dip bölgesi eşiği |
-| Apply Trend Filter | açık | Strong/Weak ayrımı yap |
-| Trend EMA Length | 100 | Trend referans EMA |
-| Enable Signal Cooldown | açık | Sinyal spam'ini önle |
-| Min Bars Between Same-Direction Signals | 60 | Cooldown süresi |
-
-### Auto-Adapt parametre tablosu
-
-| Chart TF | Long MA | Lookback |
-|---|---|---|
-| Aylık | 12 | 60 |
-| Haftalık | 50 | 200 |
-| Günlük | 200 | 365 |
-| Intraday | 100 | 500 |
-
-### Normalization yöntemleri
-
-| Mod | Mantık | Avantaj | Dezavantaj |
-|---|---|---|---|
-| **Z-Score** (default) | "Ortalamadan kaç sigma sapma" | Kısa veride çalışır, asla boş kalmaz | Ekstrem değerler clamp edilir |
-| **Percentile Rank** | "Geçmişin yüzde kaçından yüksek" | Daha intuitif okuma | Az veride na üretir |
-
-> Percentile modunda yeterli veri yoksa otomatik z-score'a düşer.
-
-### Divergence
-
-| Tip | Sinyal | Anlam |
-|---|---|---|
-| 🔻 Bearish (turuncu üçgen aşağı) | Fiyat HH, cycle LH | Momentum tükendi, tepe yakın olabilir |
-| 🔺 Bullish (cyan üçgen yukarı) | Fiyat LL, cycle HL | Düşüş gücünü kaybetti, dip yakın olabilir |
-
-**Önemli:** Pivot tespiti `divLookback` (default 5) bar gecikme gerektirir. Üçgen ekrana geldiğinde fiili pivot anından 5 bar geç olur — bu kaçınılmaz, pivotun doğası gereği.
-
-### Reversal candles (zone'da dönüş mumları)
-
-Divergence'tan farklı, daha hızlı bir sinyal. Cycle skoru zone yakınında (default ±8 puan tolerans) iken klasik dönüş mum formasyonu görülürse elmas işaretiyle gösterilir. Divergence pivot beklerken, reversal candle anında ateşlenir.
-
-| İşaret | Patern | Anlam |
-|---|---|---|
-| 🔶 Turuncu elmas (top zone) | Shooting star (uzun üst fitil) veya bearish engulfing | Alıcı tükeniyor, tepe yakın |
-| 🔷 Cyan elmas (bottom zone) | Hammer (uzun alt fitil) veya bullish engulfing | Satıcı tükeniyor, dip yakın |
-
-**Pattern tanımları:**
-- **Shooting star / Hammer**: Üst/alt fitil gövdeden en az `wickRatio` (default 2.0) kat uzun, gövde son 20 barın ortalamasından küçük
-- **Bearish engulfing**: Bugünkü kırmızı mum, dünkü yeşil mumu tamamen sarıyor
-- **Bullish engulfing**: Bugünkü yeşil mum, dünkü kırmızı mumu tamamen sarıyor
-
-| Input | Default | Açıklama |
-|---|---|---|
-| Show Reversal Candles in Zone | açık | Elmas işaretlerini göster |
-| Zone Tolerance (points) | 8 | Zone'a girmemiş ama yakındaki mumları yakalamak için tampon |
-| Min Wick / Body Ratio | 2.0 | Fitilin gövdeye oranı (shooting star / hammer için) |
-
-### Alertler
-
-| Alert | Tetiklenme |
-|---|---|
-| Enter Top Zone | Effective top zone'a girildi (trend filter + cooldown sonrası) |
-| Enter Bottom Zone | Effective bottom zone'a girildi |
-| Bearish Divergence | Olası tepe formasyonu (pivot bazlı, gecikmeli) |
-| Bullish Divergence | Olası dip formasyonu (pivot bazlı, gecikmeli) |
-| Top Reversal Candle | Top zone'da bearish dönüş mumu (anlık) |
-| Bottom Reversal Candle | Bottom zone'da bullish dönüş mumu (anlık) |
-
----
-
-## 4. OB/OS Tracker (`ob_os_tracker.pine`)
-
-**Alt panel** — Kısa vadeli aşırı alım/satım göstergesi. **RSI** veya **Stoch RSI** seçilebilir.
+**Alt panel** — Kısa vadeli timing + haftalık cycle context, tek panelde. RSI veya Stoch RSI seçilebilir.
 
 ### Ne ölçer
 
-> "Son N barda fiyat çok mu hızlı arttı/azaldı?"
+İki katmanlı yapı:
 
-İki mod var, ihtiyaca göre seçilir:
+- **Aktif çizgi (renkli noktalı):** Chart'ın kendi TF'sindeki osilatör → kısa vade timing için
+- **Referans çizgi (ince, opsiyonel):** Her TF'de haftalık osilatörü gösterir → cycle context için
+  - Haftalık chart'ta ana çizgiyle örtüşür (görünmez gibi olur)
+  - Günlük chart'ta = haftalık RSI yumuşak bir referans çizgisi olarak arkada durur
+  - Kendi zone'una göre renklenir: yeşilse haftalık OB, kırmızıysa haftalık OS, beyazsa nötr
+
+### İki katmanın okunması
+
+| Görünüm | Aktif (renkli dots) | Referans (ince çizgi) |
+|---|---|---|
+| Haftalık chart | Haftalık RSI = Betacycle benzeri | Görünmez (örtüşür) |
+| Günlük chart | Günlük RSI = anlık timing | Haftalık RSI = cycle context |
+| 4 saatlik | 4h RSI = scalp timing | Haftalık RSI = cycle context |
+
+### Mod karşılaştırması
 
 | Mod | Mantık | Karakter |
 |---|---|---|
-| **RSI** (default) | Klasik momentum osilatörü, fiyat değişiminin oranı | Az ama güçlü sinyal, az gürültü |
+| **RSI** (default) | Klasik momentum osilatörü | Az ama güçlü sinyal, az gürültü |
 | **Stoch RSI** | RSI'ın kendi son N barındaki yüzdelik konumu | Çok daha hareketli, sık sık zone'a girer |
 
-CycleScope ile karıştırılmamalı:
-
-| | OB/OS Tracker | CycleScope |
-|---|---|---|
-| Ölçer | Kısa vade momentum (14-21 bar) | Uzun vade döngü pozisyonu |
-| Zaman | Günler-haftalar | Aylar-yıllar |
-| Kullanım | Giriş/çıkış zamanlaması | Genel pozisyonlanma, risk yönetimi |
-
-### Skor yorumu
+### Skor yorumu (aktif çizgi)
 
 | Değer | Renk | Bölge |
 |---|---|---|
@@ -242,36 +109,57 @@ CycleScope ile karıştırılmamalı:
 | Input | Default | Açıklama |
 |---|---|---|
 | Oscillator Type | RSI | RSI veya Stoch RSI seç |
-| RSI Length | 14 | RSI hesaplama periyodu (her iki modda da kullanılır) |
-| Stoch Length | 14 | Sadece Stoch RSI modu: RSI'ın yüzdelik konumu için lookback |
-| K Smoothing | 3 | Sadece Stoch RSI modu: K çizgisi yumuşatma |
-| Overbought Level | 70 | Aşırı alım eşiği — RSI için 70, Stoch RSI için 80 önerilir |
-| Oversold Level | 30 | Aşırı satım eşiği — RSI için 30, Stoch RSI için 20 önerilir |
+| RSI Length | 14 | RSI hesaplama periyodu |
+| Stoch Length | 14 | Sadece Stoch RSI: RSI'ın yüzdelik konumu için lookback |
+| K Smoothing | 3 | Sadece Stoch RSI: K çizgisi yumuşatma |
+| Overbought Level | 70 | RSI için 70, Stoch RSI için 80 önerilir |
+| Oversold Level | 30 | RSI için 30, Stoch RSI için 20 önerilir |
 | Shade OB/OS Zones | açık | Bölgeleri gölgelendir |
+| Show Weekly Reference Line | açık | Haftalık osilatörü ince referans çizgisi olarak göster |
+| Weekly Reference Opacity | 25 | Referans çizgisinin şeffaflığı (0=opak, 80=neredeyse görünmez) |
 
 ### Timeframe önerileri
 
 #### RSI modu
+
 | Timeframe | RSI Len | OB / OS | Notes |
 |---|---|---|---|
-| Haftalık | 14 | 70 / 30 | Standart, az ama güçlü sinyal |
+| Haftalık | 14 | 70 / 30 | Standart — Selcoin Betacycle haftalık'ın yaklaşık karşılığı |
 | Günlük (BTC) | 21 | 75 / 25 | Daha az gürültü |
 | Günlük (agresif crypto) | 21 | 80 / 20 | Sadece keskin uçlar |
 | 4 saatlik | 14 | 75 / 25 | Daha az whipsaw |
 
 #### Stoch RSI modu
+
 | Timeframe | RSI / Stoch / K | OB / OS | Notes |
 |---|---|---|---|
 | Haftalık | 14 / 14 / 3 | 80 / 20 | Standart |
 | Günlük | 14 / 14 / 3 | 80 / 20 | Çok hareketli |
 | Günlük (daha az sinyal) | 14 / 21 / 3 | 85 / 15 | Daha selektif |
 
+### Selcoin Betacycle ile ilişki
+
+Selcoin'in **Betacycle** göstergesi, yapılan ters mühendislik sonucu **scaled weekly RSI** çıktı:
+
+```
+Betacycle ≈ 1.42 × WeeklyRSI(14) + 72
+```
+
+Bu kalibrasyonla:
+- Betacycle 110 (kırmızı) ≈ Weekly RSI 30 (klasik oversold)
+- Betacycle 170 (yeşil) ≈ Weekly RSI 70 (klasik overbought)
+- Betacycle 138 (mavi nötr) ≈ Weekly RSI 47
+
+Yani OB/OS Tracker'ı **haftalık chart**'ta açtığında veya **günlük chart**'tan **haftalık referans çizgisini** izlediğinde, görsel olarak Betacycle haftalık'ın aynısını okursun. Sadece skala 0-100 (70/30 eşik) yerine ~70-210 (Betacycle skalası 110/170).
+
+> **Önemli not:** Tek bir gösterge hem haftalık-yumuşak hem günlük-anlık olamaz — bilgi yoğunluğu farkı. Selcoin'in günlük Betacycle'ı da çok gürültülüdür (kendileri çözememiş). Bu yüzden iki katmanlı yapı: chart TF'i timing için, haftalık referans cycle için.
+
 ### RSI mi Stoch RSI mi?
 
 | Tercih | Hangisi |
 |---|---|
-| Az ama güvenilir sinyal istiyorum | RSI |
-| Sık tepki noktaları yakalamak istiyorum | Stoch RSI |
+| Az ama güvenilir sinyal | RSI |
+| Sık tepki noktaları yakalamak | Stoch RSI |
 | Selcoin / TR crypto sitelerindeki tarz | Stoch RSI |
 | Hisse, altın takibi | RSI |
 | Crypto scalp/swing | Stoch RSI |
@@ -280,85 +168,85 @@ CycleScope ile karıştırılmamalı:
 
 | Alert | Tetiklenme |
 |---|---|
-| Enter Overbought | Osilatör overbought eşiğini geçti |
-| Exit Overbought | Eşiğin altına düştü |
-| Enter Oversold | Osilatör oversold eşiğinin altına düştü |
-| Exit Oversold | Eşiği geçti |
+| Enter Overbought (Chart) | Chart TF osilatörü overbought eşiğini geçti |
+| Exit Overbought (Chart) | Eşiğin altına düştü |
+| Enter Oversold (Chart) | Chart TF osilatörü oversold eşiğinin altına düştü |
+| Exit Oversold (Chart) | Eşiği geçti |
+| Enter Overbought (Weekly) | **Haftalık** osilatör overbought'a girdi — cycle tepesi |
+| Exit Overbought (Weekly) | Haftalık overbought'tan çıktı |
+| Enter Oversold (Weekly) | Haftalık osilatör oversold'a girdi — cycle dibi |
+| Exit Oversold (Weekly) | Haftalık oversold'dan çıktı |
 
 ---
 
-## 5. Üçü Birlikte Nasıl Okunur
-
-Tek bir gösterge yalan söyleyebilir; üçü birden aynı şeyi söylediğinde sinyal güçlüdür. Confluence örnekleri:
+## 4. İkisi Birlikte Nasıl Okunur
 
 ### Güçlü AL setup'ı
 
 | Sinyal | Gösterge |
 |---|---|
 | Cloud Bullish Cross | CloudTrend (trend yukarı döndü) |
-| Bottom Zone (skor < 20) | CycleScope (cycle dibinde) |
-| RSI Oversold + döndü | OB/OS Tracker (kısa vade satılmış, tepki başlıyor) |
-| **+** Bullish Divergence | CycleScope (momentum dönüyor) |
+| Haftalık RSI oversold'dan çıkıyor (kırmızı referans → beyaza) | OB/OS Tracker (cycle dibinden toparlanma) |
+| Chart TF RSI oversold + döndü | OB/OS Tracker (kısa vade satılmış, tepki başlıyor) |
 
 ### Güçlü SAT setup'ı
 
 | Sinyal | Gösterge |
 |---|---|
 | Cloud Bearish Cross | CloudTrend (trend aşağı döndü) |
-| Top Zone (skor > 80) | CycleScope (cycle tepesinde) |
-| RSI Overbought + döndü | OB/OS Tracker (kısa vade alınmış, dönüş başlıyor) |
-| **+** Bearish Divergence | CycleScope (momentum tükeniyor) |
+| Haftalık RSI overbought (yeşil referans çizgi) | OB/OS Tracker (cycle tepesi) |
+| Chart TF RSI overbought + döndü | OB/OS Tracker (kısa vade alınmış) |
 
 ### Çelişkili durumlar (yaygın)
 
 | Durum | Yorum |
 |---|---|
-| Cloud BULL + Cycle TOP + RSI OB | Trend yukarı ama tepe bölgesi → yeni long açma, mevcut karı koru |
-| Cloud BEAR + Cycle BOTTOM + RSI OS | Trend aşağı ama dip bölgesi → yeni short açma, kademeli birikim düşünülebilir |
-| Cloud TRANSITION + Cycle MID + RSI nötr | Sinyal yok, beklemek en doğru aksiyon |
-| Cloud BULL + Cycle MID + RSI OB | Trend güçlü, kısa vade aşırı → büyük açış için tepki bekle |
+| Cloud BULL + Haftalık OB + Chart OB | Trend yukarı ama her iki TF'de aşırı → yeni long açma, mevcut karı koru |
+| Cloud BEAR + Haftalık OS + Chart OS | Trend aşağı ama her iki TF'de aşırı → yeni short açma, kademeli birikim düşünülebilir |
+| Cloud TRANSITION + her şey nötr | Sinyal yok, beklemek en doğru aksiyon |
+| Cloud BULL + Haftalık nötr + Chart OB | Trend güçlü, kısa vade aşırı → büyük açış için tepki bekle |
 
 ---
 
-## 6. Asset & Timeframe Önerileri
+## 5. Asset & Timeframe Önerileri
 
 ### BTC
 
-| TF | CloudTrend Asset | CycleScope | OB/OS |
+| TF | CloudTrend Asset | OB/OS Type | OB / OS |
 |---|---|---|---|
-| Haftalık | Crypto | Auto-adapt (longMA 50, lookback 200) | 14 / 70-30 |
-| Günlük | Crypto | Auto-adapt (longMA 200, lookback 365) | 21 / 75-25 |
-| 4 saatlik | Crypto | Manuel: longMA 100, lookback 500 | 14 / 75-25 |
+| Haftalık | Crypto | RSI 14 | 70 / 30 |
+| Günlük | Crypto | RSI 21 (veya Stoch RSI) | 75 / 25 (veya 80 / 20) |
+| 4 saatlik | Crypto | RSI 14 | 75 / 25 |
 
 ### Altın / Emtia
 
-| TF | CloudTrend Asset | CycleScope | OB/OS |
+| TF | CloudTrend Asset | OB/OS Type | OB / OS |
 |---|---|---|---|
-| Haftalık | Gold/Commodities | Auto-adapt | 14 / 70-30 |
-| Günlük | Gold/Commodities | Auto-adapt | 14 / 70-30 |
+| Haftalık | Gold/Commodities | RSI 14 | 70 / 30 |
+| Günlük | Gold/Commodities | RSI 14 | 70 / 30 |
 
 ### Hisse / Endeks
 
-| TF | CloudTrend Asset | CycleScope | OB/OS |
+| TF | CloudTrend Asset | OB/OS Type | OB / OS |
 |---|---|---|---|
-| Haftalık | Stocks/Index | Auto-adapt | 14 / 70-30 |
-| Günlük | Stocks/Index | Auto-adapt | 14 / 65-35 (hisseler için daha hassas) |
+| Haftalık | Stocks/Index | RSI 14 | 70 / 30 |
+| Günlük | Stocks/Index | RSI 14 | 65 / 35 (hisseler için daha hassas) |
 
 ---
 
-## 7. SSS / Sınırlamalar
+## 6. SSS / Sınırlamalar
 
-**S: CycleScope ve OB/OS aynı şey mi?**
-H: Hayır. OB/OS kısa vade momentum (14 bar), CycleScope uzun vade pozisyon (yüzlerce bar). Farklı sorulara cevap verirler.
+**S: Selcoin'deki Betacycle göstergesiyle aynı mı?**
+H: Algoritma birebir değil ama davranış olarak çok yakın. Yapılan analiz sonucu Betacycle ≈ 1.42 × WeeklyRSI + 72 olarak yaklaşık modellendi. OB/OS Tracker'ı haftalık chart'ta açarsan görsel olarak aynısını okuyabilirsin (skala farklı, 0-100 vs ~70-210).
 
-**S: Selcoin/diğer sitedeki "Betacycle" göstergesiyle aynı mı?**
-H: Hayır. Betacycle proprietary, algoritması açık değil. CycleScope benzer davranışı üreten açık kaynak alternatif — birebir aynı sayılar olmaz.
+**S: Günlük chart'ta haftalık referans çizgisi neden bazen "donmuş" görünüyor?**
+H: Haftalık RSI bir hafta boyunca yavaş değişir, günlük 5-7 bar boyunca aynı veya çok yakın bir değer gösterebilir. Bu normal — bilginin doğası gereği. Cycle context için tasarlandı, anlık değişim için değil.
 
-**S: Haftalık BTC'de CycleScope çizmiyor.**
-H: Auto-Adapt'in açık olduğundan emin ol. Kapalıysa lookback değerini düşür (200 veya altı), veri yeterli değil. Z-Score moduna geç, percentile yerine.
+**S: Günlük sinyaller çok mu yoğun?**
+H: Klasik RSI(14) günlük volatil olabilir. Önerimler: RSI Length 21 yap, OB/OS eşiklerini 75/25'e çek. Stoch RSI moduna geçersen daha hareketli ama eşikleri 85/15'e çek. Crypto için daha agresif filtre normal.
 
-**S: Divergence üçgeni neden geç geliyor?**
-H: Pivot tespiti `divLookback` (default 5) bar gecikme gerektirir, kaçınılmaz. Daha hızlı için lookback'i düşür ama gürültü artar.
+**S: Tek bir göstergeyle tepe/dip tahmin edebilir miyim?**
+H: Hayır. Hiçbir gösterge tepe/dipleri öngörmez, sadece uyarır. Confluence (CloudTrend + OB/OS chart + haftalık referansın aynı yönde uyarması) en güvenilir yaklaşımdır.
 
 **S: TradingView'deki diğer site ile RSI değerleri tutmuyor.**
 H: Farklı veri kaynağı (Binance vs Coinbase), farklı smoothing (RMA vs SMA vs EMA), farklı mum kapanış saati. Standart TradingView RSI Wilder smoothing kullanır.
@@ -366,11 +254,8 @@ H: Farklı veri kaynağı (Binance vs Coinbase), farklı smoothing (RMA vs SMA v
 **S: On-chain göstergelerin yerini tutar mı?**
 H: Hayır. MVRV, NUPL gibi metrikler BTC için daha güvenilirdir ama tek asset için çalışır. Bu sistem multi-asset bir alternatiftir.
 
-**S: Tek bir göstergeyle tepe/dip tahmin edebilir miyim?**
-H: Hayır. Hiçbir gösterge tepe/dipleri öngörmez, sadece uyarır. Confluence (3 göstergenin birlikte uyarması) en güvenilir yaklaşımdır. Dürüst söyleyen herkes bunu kabul eder.
-
 ---
 
-## 8. Sorumluluk Reddi
+## 7. Sorumluluk Reddi
 
 Bu göstergeler eğitim ve analiz amaçlıdır. Yatırım tavsiyesi değildir. Gerçek para ile kullanmadan önce demo/paper trading ile test edilmesi önerilir. Kripto, altın ve hisse piyasaları yüksek risk barındırır; kaybetmeyi göze alamayacağın parayla işlem yapma.
