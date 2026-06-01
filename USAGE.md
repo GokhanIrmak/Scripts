@@ -1,21 +1,24 @@
 # CloudTrend Sistemi - Kullanım Kılavuzu
 
-İki TradingView göstergesinden oluşan trend & cycle takip sistemidir. Crypto, altın/emtia ve hisse/endeks için optimize edilmiştir.
+Üç TradingView göstergesinden oluşan trend & dönüş takip sistemidir. Crypto, altın/emtia ve hisse/endeks için optimize edilmiştir.
 
 ---
 
 ## 1. Genel Bakış
 
-Sistem iki göstergeden oluşur. Her biri farklı bir soruya cevap verir:
+Sistem üç göstergeden oluşur. Her biri farklı bir soruya cevap verir:
 
 | Gösterge | Dosya | Sorduğu soru |
 |---|---|---|
 | **CloudTrend** | `tr_view.pine` | Trend ne yönde? Fiyat hangi seviyede? |
 | **OB/OS Tracker** | `ob_os_tracker.pine` | Şu an aşırı alım/satım var mı? Haftalık cycle nerede? |
+| **Reversal Scout** | `reversal_scout.pine` | Dip/tepe dönüşü yakın mı? (RSI + Bollinger + Hacim teyidi) |
 
-İkisi ayrı indicator olarak TradingView'e eklenir, aynı chart'ta birlikte çalışır.
+Üçü ayrı indicator olarak TradingView'e eklenir, aynı chart'ta birlikte çalışır.
 
-> **Not:** OB/OS Tracker, opsiyonel haftalık referans çizgisiyle iki katmanlı çalışır: aktif çizgi chart'ın TF'sini gösterir (timing için), ince referans çizgisi haftalık RSI'ı her TF'de gösterir (cycle context için). Yani ayrı bir "cycle göstergesi"ne gerek kalmaz.
+> **Not 1:** OB/OS Tracker, opsiyonel haftalık referans çizgisiyle iki katmanlı çalışır: aktif çizgi chart'ın TF'sini gösterir (timing için), ince referans çizgisi haftalık RSI'ı her TF'de gösterir (cycle context için).
+
+> **Not 2:** Reversal Scout, "A'dan Z'ye Borsaya Yatırım Rehberi" teknik analiz bölümündeki dönüş sinyallerini (RSI uçları + Bollinger band dokunuşu + hacim spike) tek bir confluence sinyalinde birleştirir. OB/OS sürekli osilatör gösterirken, Reversal Scout yüksek-güvenli dönüş noktalarını fiyat grafiğinde işaretler.
 
 ---
 
@@ -179,7 +182,86 @@ Yani OB/OS Tracker'ı **haftalık chart**'ta açtığında veya **günlük chart
 
 ---
 
-## 4. İkisi Birlikte Nasıl Okunur
+## 4. Reversal Scout (`reversal_scout.pine`)
+
+**Ana panel** — fiyat üstüne overlay. Dip/tepe dönüş noktalarını ok + AL/SAT etiketiyle işaretler.
+
+### Ne ölçer
+
+> "Şu an bir tükeniş (exhaustion) noktası mı? Dönüş yakın mı?"
+
+Tek bir gösterge yanıltır; kitap da bunu söylüyor. Bu yüzden üç bağımsız dönüş koşulu birden aranır:
+
+| Koşul | Kitap referansı | Tepe (SAT) | Dip (AL) |
+|---|---|---|---|
+| **RSI ucu** | s.49: 30/70'de yön değişimi beklenir | RSI ≥ 70 | RSI ≤ 30 |
+| **Bollinger dokunuşu** | s.49-50: band sınırından ortalamaya dönüş | High ≥ üst band | Low ≤ alt band |
+| **Hacim spike** | s.42: en yüksek hacimler fiyat uçlarında olur | Hacim > ort. × çarpan | Hacim > ort. × çarpan |
+
+Kaç koşulun gerektiği ayarlanabilir (2 veya 3). Opsiyonel MACD teyidi (s.48) ek bir AND kapısı olarak eklenebilir.
+
+### Sinyal mantığı
+
+```
+Tepe (SAT) = (≥minConditions tepe koşulu) VE (MACD kapalı VEYA MACD bearish)
+Dip (AL)   = (≥minConditions dip koşulu)  VE (MACD kapalı VEYA MACD bullish)
+```
+
+- **3 koşul (katı):** Az ama güçlü sinyal, "oturaklı" karakter
+- **2 koşul (esnek):** Daha fazla sinyal, bazıları yanlış çıkabilir
+
+Sinyal **3/3** koşulla geldiyse ok **parlak**, **2/3** ile geldiyse **sönük** renkli.
+
+### Inputlar
+
+| Input | Default | Açıklama |
+|---|---|---|
+| Minimum Conditions to Trigger | 3 | Kaç koşul gerekli (2 veya 3) |
+| RSI Length / Overbought / Oversold | 14 / 70 / 30 | RSI ayarları |
+| BB Length / StdDev | 20 / 2.0 | Bollinger ayarları |
+| Volume MA Length | 20 | Hacim ortalaması periyodu |
+| Volume Spike Multiplier | 1.5 | Hacim ortalamanın kaç katı = spike |
+| Use MACD Confirmation | kapalı | MACD'yi ek teyit koşulu yap |
+| MACD Fast / Slow / Signal | 12 / 26 / 9 | MACD ayarları |
+| Show Trend EMA | açık | Trend referans çizgisi (kitap s.46) |
+| Trend EMA Length | 200 | Trend EMA periyodu |
+| Show Bollinger Bands | açık | BB bantlarını çiz |
+| Show AL/SAT Labels | açık | Kapalıyken sadece ok, yazı yok |
+
+### Görsel
+
+| İşaret | Anlam |
+|---|---|
+| 🔻 Kırmızı ok + "SAT" (bar üstü) | Tepe dönüş sinyali |
+| 🔺 Yeşil ok + "AL" (bar altı) | Dip dönüş sinyali |
+| Beyaz çizgi | Trend EMA (yön referansı) |
+| Gri bantlar | Bollinger bandları |
+
+### Önemli sınırlamalar
+
+- **Hacimsiz/güvenilmez hacimli varlıklar:** Bazı endeks/forex sembollerinde hacim olmayabilir. O zaman hacim koşulu tetiklenmez, max 2 koşul kalır — `Minimum Conditions`'ı 2 yap.
+- **Repaint:** Sinyaller bar kapanışından önce intra-bar oluşabilir ve bar kapanana kadar değişebilir. Teyit için bar kapanışını beklemek daha güvenli.
+- **Karşı-trend doğası:** Bu bir dönüş avcısıdır, trende karşı sinyal verir. Güçlü trendlerde erken sinyal verebilir — CloudTrend ile birlikte oku (trend hâlâ güçlüyse sinyali zayıf say).
+
+### Timeframe önerileri
+
+| Timeframe | Min Koşul | Volume Mult | Notes |
+|---|---|---|---|
+| Haftalık | 3 | 1.5 | En güvenilir, az sinyal |
+| Günlük (BTC) | 3 | 1.8 | Crypto volatilitesi için biraz sıkı |
+| Günlük (daha çok sinyal) | 2 | 1.5 | Esnek mod |
+| 4 saatlik | 2 | 1.5 | Daha aktif |
+
+### Alertler
+
+| Alert | Tetiklenme |
+|---|---|
+| Top Reversal (SAT) | Tepe dönüş sinyali oluştu |
+| Bottom Reversal (AL) | Dip dönüş sinyali oluştu |
+
+---
+
+## 5. Üçü Birlikte Nasıl Okunur
 
 ### Güçlü AL setup'ı
 
@@ -188,6 +270,7 @@ Yani OB/OS Tracker'ı **haftalık chart**'ta açtığında veya **günlük chart
 | Cloud Bullish Cross | CloudTrend (trend yukarı döndü) |
 | Haftalık RSI oversold'dan çıkıyor (kırmızı referans → beyaza) | OB/OS Tracker (cycle dibinden toparlanma) |
 | Chart TF RSI oversold + döndü | OB/OS Tracker (kısa vade satılmış, tepki başlıyor) |
+| **AL** sinyali (yeşil ok) | Reversal Scout (RSI+BB+Hacim dip teyidi) |
 
 ### Güçlü SAT setup'ı
 
@@ -196,6 +279,9 @@ Yani OB/OS Tracker'ı **haftalık chart**'ta açtığında veya **günlük chart
 | Cloud Bearish Cross | CloudTrend (trend aşağı döndü) |
 | Haftalık RSI overbought (yeşil referans çizgi) | OB/OS Tracker (cycle tepesi) |
 | Chart TF RSI overbought + döndü | OB/OS Tracker (kısa vade alınmış) |
+| **SAT** sinyali (kırmızı ok) | Reversal Scout (RSI+BB+Hacim tepe teyidi) |
+
+> **En güçlü dönüş:** Reversal Scout 3/3 sinyali + OB/OS haftalık uçta + CloudTrend trend dönüşü aynı bölgede. Üçü hizalanınca tarihsel olarak en güvenilir dip/tepe bölgeleri oluşur.
 
 ### Çelişkili durumlar (yaygın)
 
@@ -208,15 +294,15 @@ Yani OB/OS Tracker'ı **haftalık chart**'ta açtığında veya **günlük chart
 
 ---
 
-## 5. Asset & Timeframe Önerileri
+## 6. Asset & Timeframe Önerileri
 
 ### BTC
 
-| TF | CloudTrend Asset | OB/OS Type | OB / OS |
-|---|---|---|---|
-| Haftalık | Crypto | RSI 14 | 70 / 30 |
-| Günlük | Crypto | RSI 21 (veya Stoch RSI) | 75 / 25 (veya 80 / 20) |
-| 4 saatlik | Crypto | RSI 14 | 75 / 25 |
+| TF | CloudTrend Asset | OB/OS Type | OB / OS | RevScout Min Koşul |
+|---|---|---|---|---|
+| Haftalık | Crypto | RSI 14 | 70 / 30 | 3 |
+| Günlük | Crypto | RSI 21 (veya Stoch RSI) | 75 / 25 (veya 80 / 20) | 3 |
+| 4 saatlik | Crypto | RSI 14 | 75 / 25 | 2 |
 
 ### Altın / Emtia
 
@@ -234,7 +320,13 @@ Yani OB/OS Tracker'ı **haftalık chart**'ta açtığında veya **günlük chart
 
 ---
 
-## 6. SSS / Sınırlamalar
+## 7. SSS / Sınırlamalar
+
+**S: Reversal Scout ile OB/OS Tracker'ın ikisi de RSI kullanıyor, neden ayrı?**
+H: OB/OS sürekli bir osilatör çizer (her bar bir değer). Reversal Scout ise RSI'ı tek başına değil, Bollinger ve hacimle birlikte ele alıp *sadece üçü hizalandığında* fiyat grafiğine bir dönüş işareti koyar. Biri "durum göstergesi", diğeri "tetik". Birlikte kullanılır.
+
+**S: Reversal Scout hiç sinyal vermiyor / çok az veriyor.**
+H: Muhtemelen `Minimum Conditions` 3'te ve hacim koşulu tetiklenmiyor (hacimsiz sembol) ya da piyasa uçlara gelmedi. Çözüm: Min Koşul'u 2 yap, veya Volume Spike Multiplier'ı 1.3'e düşür.
 
 **S: Selcoin'deki Betacycle göstergesiyle aynı mı?**
 H: Algoritma birebir değil ama davranış olarak çok yakın. Yapılan analiz sonucu Betacycle ≈ 1.42 × WeeklyRSI + 72 olarak yaklaşık modellendi. OB/OS Tracker'ı haftalık chart'ta açarsan görsel olarak aynısını okuyabilirsin (skala farklı, 0-100 vs ~70-210).
@@ -256,6 +348,6 @@ H: Hayır. MVRV, NUPL gibi metrikler BTC için daha güvenilirdir ama tek asset 
 
 ---
 
-## 7. Sorumluluk Reddi
+## 8. Sorumluluk Reddi
 
 Bu göstergeler eğitim ve analiz amaçlıdır. Yatırım tavsiyesi değildir. Gerçek para ile kullanmadan önce demo/paper trading ile test edilmesi önerilir. Kripto, altın ve hisse piyasaları yüksek risk barındırır; kaybetmeyi göze alamayacağın parayla işlem yapma.
