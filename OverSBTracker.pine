@@ -1,13 +1,16 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────
-//  OverS/BTracker — composite overbought/oversold oscillator
-//  Combines one indicator per family (no redundant oscillators):
-//    RSI (momentum) · MFI (volume momentum, auto-off if no volume)
-//    Bollinger %B (volatility position) · Z-score vs EMA200 (stretch)
-//  Regime-gated by ADX: in a strong trend, "overbought" = strength,
-//  so dots show orange/teal (informational) instead of red/green (actionable).
+//  OverS/BTracker v2 — SPOT MODE (long-only, event-based)
+//  Fixes v1 noise: no more per-bar colored dots. Zone membership
+//  is not a signal; zone EXITS are.
+//    BUY  = composite leaves oversold upward (bounce confirmed)
+//    SELL = composite leaves overbought downward AND trend is
+//           weak/weakening (ADX gate) — otherwise it's just
+//           strength and you keep holding.
+//  Cooldown: after a signal fires, it re-arms only once the
+//  composite crosses back through 50. No signal clusters.
 // ─────────────────────────────────────────────────────────────
-indicator("OverS/BTracker", shorttitle="OS/OB Tracker", overlay=false)
+indicator("OverS/BTracker v2", shorttitle="OS/OB Tracker", overlay=false)
 
 // ── Inputs ───────────────────────────────────────────────────
 rsiLen    = input.int(14,    "RSI length",                group="Components")
@@ -23,9 +26,10 @@ wPB       = input.float(0.25, "Weight: %B",   step=0.05,  group="Weights")
 wZ        = input.float(0.25, "Weight: Z-score", step=0.05, group="Weights")
 obLvl     = input.int(70,    "Overbought level",          group="Levels")
 osLvl     = input.int(30,    "Oversold level",            group="Levels")
-gateADX   = input.bool(true, "Gate signals by trend strength (ADX)", group="Regime gate")
+gateADX   = input.bool(true, "Require weak/weakening trend for SELL", group="Regime gate")
 adxLen    = input.int(14,    "ADX length",                group="Regime gate")
 adxGate   = input.int(25,    "ADX gate level",            group="Regime gate")
+showZones = input.bool(true, "Shade zone visits (context only)", group="Display")
 showTable = input.bool(true, "Show component table",      group="Display")
 
 // ── Components, all normalized to 0–100 ──────────────────────
@@ -41,55 +45,70 @@ zBasis  = ta.ema(close, zBasisLen)
 distPct = (close - zBasis) / zBasis * 100
 zStd    = ta.stdev(distPct, zLook)
 zVal    = zStd != 0 ? (distPct - ta.sma(distPct, zLook)) / zStd : 0
-zComp   = math.min(math.max(50 + zVal * 20, 0), 100)   // ±2.5σ spans the scale
+zComp   = math.min(math.max(50 + zVal * 20, 0), 100)
 
-// MFI availability (gold CFDs etc. often lack real volume)
 volOk  = not na(volume)
 useMFI = mfiMode == "On" or (mfiMode == "Auto" and volOk)
 mW     = useMFI ? wMFI : 0.0
 
-// ── Composite ────────────────────────────────────────────────
 comp = (rsiV * wRSI + nz(mfiV, 50) * mW + pb * wPB + zComp * wZ) / (wRSI + mW + wPB + wZ)
 
-// ── Regime gate ──────────────────────────────────────────────
+// ── Regime gate (for SELL only — buys in a downtrend are your
+//    DCA decision; sells against a strong uptrend are blocked) ─
 [diP, diM, adxV] = ta.dmi(adxLen, adxLen)
-fadeOK = not gateADX or adxV < adxGate or adxV < adxV[3]   // weak OR weakening trend
+trendTired = not gateADX or adxV < adxGate or adxV < adxV[3]
 
-ob = comp >= obLvl
-os = comp <= osLvl
-obValid = ob and fadeOK    // actionable: stretched AND trend not powering on
-osValid = os and fadeOK
+// ── Event detection with cooldown ────────────────────────────
+exitOS = ta.crossover(comp, osLvl)    // left oversold upward
+exitOB = ta.crossunder(comp, obLvl)   // left overbought downward
 
-// ── Plot: line + dots, like your example ─────────────────────
-dotCol = obValid ? color.red : osValid ? color.lime : ob ? color.orange : os ? color.teal : color.new(#4a7bd4, 0)
+var bool buyArmed  = true
+var bool sellArmed = true
 
-plot(comp, "Composite line", color = color.new(color.gray, 40), linewidth = 1)
-plot(comp, "Composite dots", color = dotCol, linewidth = 3, style = plot.style_circles)
+buySig  = exitOS and buyArmed
+sellSig = exitOB and sellArmed and trendTired
+
+if buySig
+    buyArmed := false
+if sellSig
+    sellArmed := false
+// Re-arm only after the composite resets through the midline
+if comp > 50
+    buyArmed := true
+if comp < 50
+    sellArmed := true
+
+// ── Display: one gray line, zones, event markers only ────────
+plot(comp, "Composite", color = color.new(color.gray, 30), linewidth = 2)
 
 hOB  = hline(obLvl, "Overbought", color = color.new(color.red, 40),   linestyle = hline.style_dashed)
 hOS  = hline(osLvl, "Oversold",   color = color.new(color.green, 40), linestyle = hline.style_dashed)
-hMid = hline(50,    "Mid",        color = color.new(color.gray, 70),  linestyle = hline.style_dotted)
+hMid = hline(50,    "Mid",        color = color.new(color.gray, 75),  linestyle = hline.style_dotted)
 hTop = hline(100, "", color = color.new(color.black, 100))
 hBot = hline(0,   "", color = color.new(color.black, 100))
-fill(hOB, hTop, color = color.new(color.red, 92))
-fill(hOS, hBot, color = color.new(color.green, 92))
+fill(hOB, hTop, color = showZones ? color.new(color.red, 94)   : na)
+fill(hOS, hBot, color = showZones ? color.new(color.green, 94) : na)
 
-bgcolor(obValid ? color.new(color.red, 88) : osValid ? color.new(color.green, 88) : na)
+plotshape(buySig,  title="BUY",       style=shape.triangleup,   location=location.bottom, color=color.new(color.lime, 0), size=size.small, text="BUY",  textcolor=color.new(color.lime, 0))
+plotshape(sellSig, title="SELL/TRIM", style=shape.triangledown, location=location.top,    color=color.new(color.red, 0),  size=size.small, text="TRIM", textcolor=color.new(color.red, 0))
+
+// Overbought-but-strong: shown as context tint only, never a signal
+bgcolor(comp >= obLvl and not trendTired ? color.new(color.orange, 94) : na, title="OB but trend strong (hold)")
 
 // ── Component table ──────────────────────────────────────────
 var table t = table.new(position.top_right, 2, 5, bgcolor = color.new(color.black, 30), border_width = 1)
 if showTable and barstate.islast
-    table.cell(t, 0, 0, "RSI",   text_color = color.silver, text_size = size.small)
-    table.cell(t, 1, 0, str.tostring(rsiV, "#.0"), text_color = color.white, text_size = size.small)
-    table.cell(t, 0, 1, "MFI",   text_color = color.silver, text_size = size.small)
-    table.cell(t, 1, 1, useMFI ? str.tostring(mfiV, "#.0") : "off (no vol)", text_color = useMFI ? color.white : color.gray, text_size = size.small)
-    table.cell(t, 0, 2, "%B",    text_color = color.silver, text_size = size.small)
-    table.cell(t, 1, 2, str.tostring(pb, "#.0"), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 0, "Comp",  text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 0, str.tostring(comp, "#.0"), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 1, "RSI",   text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 1, str.tostring(rsiV, "#.0"), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 2, "MFI",   text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 2, useMFI ? str.tostring(mfiV, "#.0") : "off (no vol)", text_color = useMFI ? color.white : color.gray, text_size = size.small)
     table.cell(t, 0, 3, "Z",     text_color = color.silver, text_size = size.small)
     table.cell(t, 1, 3, str.tostring(zVal, "#.00") + "σ", text_color = color.white, text_size = size.small)
-    table.cell(t, 0, 4, "Gate",  text_color = color.silver, text_size = size.small)
-    table.cell(t, 1, 4, fadeOK ? "OPEN (fade ok)" : "BLOCKED (trend)", text_color = fadeOK ? color.lime : color.orange, text_size = size.small)
+    table.cell(t, 0, 4, "Sell gate", text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 4, trendTired ? "OPEN" : "BLOCKED (trend strong)", text_color = trendTired ? color.lime : color.orange, text_size = size.small)
 
 // ── Alerts ───────────────────────────────────────────────────
-alertcondition(obValid and not obValid[1], "Valid OVERBOUGHT", "OverS/BTracker: overbought + trend gate open")
-alertcondition(osValid and not osValid[1], "Valid OVERSOLD",   "OverS/BTracker: oversold + trend gate open")
+alertcondition(buySig,  "BUY signal",       "OverS/BTracker v2: oversold bounce confirmed")
+alertcondition(sellSig, "SELL/TRIM signal", "OverS/BTracker v2: overbought exit + weak trend")

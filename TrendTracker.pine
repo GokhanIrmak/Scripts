@@ -1,45 +1,44 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────
-//  TrendTracker — clean trend cloud with hidden confluence engine
-//  Chart shows only: candles + one colored cloud + rare flip marks
-//  Engine behind it: EMA structure, slope, MACD, DMI, ADX regime,
-//  higher-timeframe (weekly) confirmation.
+//  TrendTracker v2 — persistent regime with hysteresis
+//  Fixes v1 noise: cloud color is now a STATE, not a per-bar vote.
+//  Regime flips only when score crosses ±threshold AND holds for
+//  N consecutive bars. Between flips, color never flickers.
 // ─────────────────────────────────────────────────────────────
-indicator("TrendTracker", shorttitle="TrendTracker", overlay=true)
+indicator("TrendTracker v2", shorttitle="TrendTracker", overlay=true)
 
 // ── Inputs ───────────────────────────────────────────────────
-fastLen   = input.int(21,  "Fast cloud edge (EMA)", minval=2,  group="Cloud")
-slowLen   = input.int(50,  "Slow cloud edge (EMA)", minval=5,  group="Cloud")
-adxLen    = input.int(14,  "ADX / DMI length",      minval=2,  group="Engine")
-adxTrend  = input.int(25,  "ADX: trending above",              group="Engine")
-adxChop   = input.int(20,  "ADX: chop below",                  group="Engine")
-useHTF    = input.bool(true, "Higher-timeframe confirmation",  group="Engine")
-htfTF     = input.timeframe("W", "Confirmation timeframe",     group="Engine")
-showFlips = input.bool(true, "Show regime flip markers",       group="Display")
-showTable = input.bool(true, "Show status table",              group="Display")
+fastLen    = input.int(21,  "Fast cloud edge (EMA)", minval=2,  group="Cloud")
+slowLen    = input.int(50,  "Slow cloud edge (EMA)", minval=5,  group="Cloud")
+adxLen     = input.int(14,  "ADX / DMI length",      minval=2,  group="Engine")
+adxTrend   = input.int(25,  "ADX: trending above",              group="Engine")
+adxChop    = input.int(20,  "ADX: chop below",                  group="Engine")
+useHTF     = input.bool(true, "Higher-timeframe confirmation",  group="Engine")
+htfTF      = input.timeframe("W", "Confirmation timeframe",     group="Engine")
+flipThresh = input.int(30, "Flip threshold (score must exceed ±this)", minval=5, maxval=80, group="Hysteresis")
+confirmBars= input.int(3,  "Confirmation bars (must hold that long)",  minval=1, maxval=10, group="Hysteresis")
+showFlips  = input.bool(true, "Show regime flip markers",       group="Display")
+showTable  = input.bool(true, "Show status table",              group="Display")
 
 // ── Cloud lines ──────────────────────────────────────────────
 fastMA = ta.ema(close, fastLen)
 slowMA = ta.ema(close, slowLen)
 
 // ── Hidden engine ────────────────────────────────────────────
-[diP, diM, adxV]   = ta.dmi(adxLen, adxLen)
+[diP, diM, adxV]    = ta.dmi(adxLen, adxLen)
 [macdL, sigL, hist] = ta.macd(close, 12, 26, 9)
 
-// Higher-TF MACD histogram, last CLOSED bar only (no repaint)
 f_histClosed() =>
     [_m, _s, _h] = ta.macd(close, 12, 26, 9)
     _h[1]
 htfHist = request.security(syminfo.tickerid, htfTF, f_histClosed(), lookahead = barmerge.lookahead_on)
 
-// Component scores, each in [-1, +1]
 sEMA   = (close > fastMA ? 0.5 : -0.5) + (fastMA > slowMA ? 0.5 : -0.5)
 sSlope = slowMA > slowMA[3] ? 1.0 : -1.0
 sMACD  = hist > 0 ? 1.0 : -1.0
 sDMI   = diP > diM ? 1.0 : -1.0
 sHTF   = htfHist > 0 ? 1.0 : -1.0
 
-// Weighted composite → -100 .. +100
 wEMA   = 0.30
 wSlope = 0.10
 wMACD  = 0.20
@@ -48,33 +47,44 @@ wHTF   = useHTF ? 0.25 : 0.0
 wSum   = wEMA + wSlope + wMACD + wDMI + wHTF
 score  = (sEMA*wEMA + sSlope*wSlope + sMACD*wMACD + sDMI*wDMI + sHTF*wHTF) / wSum * 100
 
-// ── Regime ───────────────────────────────────────────────────
-bull     = score > 0
+// ── Persistent regime with hysteresis ────────────────────────
+// Count consecutive bars the score has held beyond each threshold
+upHold = score >  flipThresh
+dnHold = score < -flipThresh
+upBars = upHold ? nz(ta.barssince(not upHold), bar_index) + 1 : 0
+dnBars = dnHold ? nz(ta.barssince(not dnHold), bar_index) + 1 : 0
+
+var int regime = 0
+flipUp = regime !=  1 and upBars >= confirmBars
+flipDn = regime != -1 and dnBars >= confirmBars
+if flipUp
+    regime :=  1
+if flipDn
+    regime := -1
+
 trending = adxV >= adxTrend
 chop     = adxV <= adxChop
 
-// ── Cloud rendering (the ONLY thing drawn) ───────────────────
-baseCol    = bull ? color.green : color.red
-fillTransp = trending ? 70 : chop ? 92 : 84   // fades out in chop
+// ── Cloud rendering — color comes from the persistent regime ─
+baseCol    = regime == 1 ? color.green : regime == -1 ? color.red : color.gray
+fillTransp = trending ? 70 : chop ? 92 : 84
 lineTransp = trending ? 25 : 60
 
 pFast = plot(fastMA, "Fast edge", color = color.new(baseCol, lineTransp), linewidth = 1)
 pSlow = plot(slowMA, "Slow edge", color = color.new(color.gray, 65),      linewidth = 1)
 fill(pFast, pSlow, color = color.new(baseCol, fillTransp), title = "Trend cloud")
 
-// ── Regime flip markers (rare, tiny) ─────────────────────────
-regime = bull ? 1 : -1
-flipUp = regime == 1  and regime[1] == -1 and not chop
-flipDn = regime == -1 and regime[1] ==  1 and not chop
+// ── Flip markers (rare by construction now) ──────────────────
 plotshape(showFlips and flipUp, title="Flip UP",   style=shape.xcross, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
 plotshape(showFlips and flipDn, title="Flip DOWN", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
 
-// ── Status table (one small corner box) ──────────────────────
+// ── Status table ─────────────────────────────────────────────
 var table t = table.new(position.top_right, 2, 3, bgcolor = color.new(color.black, 30), border_width = 1)
 if showTable and barstate.islast
-    stateTxt = trending ? (bull ? "STRONG UP" : "STRONG DOWN") : chop ? "CHOP — STAND ASIDE" : (bull ? "WEAK UP" : "WEAK DOWN")
-    stateCol = chop ? color.gray : bull ? color.green : color.red
-    table.cell(t, 0, 0, "State",  text_color = color.silver, text_size = size.small)
+    regTxt   = regime == 1 ? "UP" : regime == -1 ? "DOWN" : "NEUTRAL"
+    stateTxt = chop ? regTxt + " · chop" : trending ? regTxt + " · strong" : regTxt + " · weak"
+    stateCol = regime == 1 ? color.green : regime == -1 ? color.red : color.gray
+    table.cell(t, 0, 0, "Regime", text_color = color.silver, text_size = size.small)
     table.cell(t, 1, 0, stateTxt, text_color = stateCol,     text_size = size.small)
     table.cell(t, 0, 1, "Score",  text_color = color.silver, text_size = size.small)
     table.cell(t, 1, 1, str.tostring(score, "#.0"), text_color = stateCol, text_size = size.small)
@@ -82,5 +92,5 @@ if showTable and barstate.islast
     table.cell(t, 1, 2, str.tostring(adxV, "#.0"), text_color = trending ? color.yellow : color.gray, text_size = size.small)
 
 // ── Alerts ───────────────────────────────────────────────────
-alertcondition(flipUp, "Trend flip UP",   "TrendTracker: regime flipped UP")
-alertcondition(flipDn, "Trend flip DOWN", "TrendTracker: regime flipped DOWN")
+alertcondition(flipUp, "Trend flip UP",   "TrendTracker v2: regime flipped UP (confirmed)")
+alertcondition(flipDn, "Trend flip DOWN", "TrendTracker v2: regime flipped DOWN (confirmed)")
