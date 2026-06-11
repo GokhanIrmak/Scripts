@@ -1,0 +1,86 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────
+//  TrendTracker — clean trend cloud with hidden confluence engine
+//  Chart shows only: candles + one colored cloud + rare flip marks
+//  Engine behind it: EMA structure, slope, MACD, DMI, ADX regime,
+//  higher-timeframe (weekly) confirmation.
+// ─────────────────────────────────────────────────────────────
+indicator("TrendTracker", shorttitle="TrendTracker", overlay=true)
+
+// ── Inputs ───────────────────────────────────────────────────
+fastLen   = input.int(21,  "Fast cloud edge (EMA)", minval=2,  group="Cloud")
+slowLen   = input.int(50,  "Slow cloud edge (EMA)", minval=5,  group="Cloud")
+adxLen    = input.int(14,  "ADX / DMI length",      minval=2,  group="Engine")
+adxTrend  = input.int(25,  "ADX: trending above",              group="Engine")
+adxChop   = input.int(20,  "ADX: chop below",                  group="Engine")
+useHTF    = input.bool(true, "Higher-timeframe confirmation",  group="Engine")
+htfTF     = input.timeframe("W", "Confirmation timeframe",     group="Engine")
+showFlips = input.bool(true, "Show regime flip markers",       group="Display")
+showTable = input.bool(true, "Show status table",              group="Display")
+
+// ── Cloud lines ──────────────────────────────────────────────
+fastMA = ta.ema(close, fastLen)
+slowMA = ta.ema(close, slowLen)
+
+// ── Hidden engine ────────────────────────────────────────────
+[diP, diM, adxV]   = ta.dmi(adxLen, adxLen)
+[macdL, sigL, hist] = ta.macd(close, 12, 26, 9)
+
+// Higher-TF MACD histogram, last CLOSED bar only (no repaint)
+f_histClosed() =>
+    [_m, _s, _h] = ta.macd(close, 12, 26, 9)
+    _h[1]
+htfHist = request.security(syminfo.tickerid, htfTF, f_histClosed(), lookahead = barmerge.lookahead_on)
+
+// Component scores, each in [-1, +1]
+sEMA   = (close > fastMA ? 0.5 : -0.5) + (fastMA > slowMA ? 0.5 : -0.5)
+sSlope = slowMA > slowMA[3] ? 1.0 : -1.0
+sMACD  = hist > 0 ? 1.0 : -1.0
+sDMI   = diP > diM ? 1.0 : -1.0
+sHTF   = htfHist > 0 ? 1.0 : -1.0
+
+// Weighted composite → -100 .. +100
+wEMA   = 0.30
+wSlope = 0.10
+wMACD  = 0.20
+wDMI   = 0.15
+wHTF   = useHTF ? 0.25 : 0.0
+wSum   = wEMA + wSlope + wMACD + wDMI + wHTF
+score  = (sEMA*wEMA + sSlope*wSlope + sMACD*wMACD + sDMI*wDMI + sHTF*wHTF) / wSum * 100
+
+// ── Regime ───────────────────────────────────────────────────
+bull     = score > 0
+trending = adxV >= adxTrend
+chop     = adxV <= adxChop
+
+// ── Cloud rendering (the ONLY thing drawn) ───────────────────
+baseCol    = bull ? color.green : color.red
+fillTransp = trending ? 70 : chop ? 92 : 84   // fades out in chop
+lineTransp = trending ? 25 : 60
+
+pFast = plot(fastMA, "Fast edge", color = color.new(baseCol, lineTransp), linewidth = 1)
+pSlow = plot(slowMA, "Slow edge", color = color.new(color.gray, 65),      linewidth = 1)
+fill(pFast, pSlow, color = color.new(baseCol, fillTransp), title = "Trend cloud")
+
+// ── Regime flip markers (rare, tiny) ─────────────────────────
+regime = bull ? 1 : -1
+flipUp = regime == 1  and regime[1] == -1 and not chop
+flipDn = regime == -1 and regime[1] ==  1 and not chop
+plotshape(showFlips and flipUp, title="Flip UP",   style=shape.xcross, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(showFlips and flipDn, title="Flip DOWN", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
+
+// ── Status table (one small corner box) ──────────────────────
+var table t = table.new(position.top_right, 2, 3, bgcolor = color.new(color.black, 30), border_width = 1)
+if showTable and barstate.islast
+    stateTxt = trending ? (bull ? "STRONG UP" : "STRONG DOWN") : chop ? "CHOP — STAND ASIDE" : (bull ? "WEAK UP" : "WEAK DOWN")
+    stateCol = chop ? color.gray : bull ? color.green : color.red
+    table.cell(t, 0, 0, "State",  text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 0, stateTxt, text_color = stateCol,     text_size = size.small)
+    table.cell(t, 0, 1, "Score",  text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 1, str.tostring(score, "#.0"), text_color = stateCol, text_size = size.small)
+    table.cell(t, 0, 2, "ADX",    text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 2, str.tostring(adxV, "#.0"), text_color = trending ? color.yellow : color.gray, text_size = size.small)
+
+// ── Alerts ───────────────────────────────────────────────────
+alertcondition(flipUp, "Trend flip UP",   "TrendTracker: regime flipped UP")
+alertcondition(flipDn, "Trend flip DOWN", "TrendTracker: regime flipped DOWN")

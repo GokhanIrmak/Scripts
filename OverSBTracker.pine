@@ -1,0 +1,95 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────
+//  OverS/BTracker — composite overbought/oversold oscillator
+//  Combines one indicator per family (no redundant oscillators):
+//    RSI (momentum) · MFI (volume momentum, auto-off if no volume)
+//    Bollinger %B (volatility position) · Z-score vs EMA200 (stretch)
+//  Regime-gated by ADX: in a strong trend, "overbought" = strength,
+//  so dots show orange/teal (informational) instead of red/green (actionable).
+// ─────────────────────────────────────────────────────────────
+indicator("OverS/BTracker", shorttitle="OS/OB Tracker", overlay=false)
+
+// ── Inputs ───────────────────────────────────────────────────
+rsiLen    = input.int(14,    "RSI length",                group="Components")
+mfiLen    = input.int(14,    "MFI length",                group="Components")
+mfiMode   = input.string("Auto", "Use MFI (volume)", options=["Auto","On","Off"], group="Components")
+bbLen     = input.int(20,    "Bollinger length",          group="Components")
+bbMult    = input.float(2.0, "Bollinger mult",            group="Components")
+zBasisLen = input.int(200,   "Z-score basis EMA (lower for short-history symbols)", group="Components")
+zLook     = input.int(100,   "Z-score lookback",          group="Components")
+wRSI      = input.float(0.30, "Weight: RSI",  step=0.05,  group="Weights")
+wMFI      = input.float(0.20, "Weight: MFI",  step=0.05,  group="Weights")
+wPB       = input.float(0.25, "Weight: %B",   step=0.05,  group="Weights")
+wZ        = input.float(0.25, "Weight: Z-score", step=0.05, group="Weights")
+obLvl     = input.int(70,    "Overbought level",          group="Levels")
+osLvl     = input.int(30,    "Oversold level",            group="Levels")
+gateADX   = input.bool(true, "Gate signals by trend strength (ADX)", group="Regime gate")
+adxLen    = input.int(14,    "ADX length",                group="Regime gate")
+adxGate   = input.int(25,    "ADX gate level",            group="Regime gate")
+showTable = input.bool(true, "Show component table",      group="Display")
+
+// ── Components, all normalized to 0–100 ──────────────────────
+rsiV = ta.rsi(close, rsiLen)
+mfiV = ta.mfi(hlc3, mfiLen)
+
+bbBasis = ta.sma(close, bbLen)
+bbDev   = bbMult * ta.stdev(close, bbLen)
+pbRaw   = bbDev != 0 ? (close - (bbBasis - bbDev)) / (2 * bbDev) * 100 : 50
+pb      = math.min(math.max(pbRaw, 0), 100)
+
+zBasis  = ta.ema(close, zBasisLen)
+distPct = (close - zBasis) / zBasis * 100
+zStd    = ta.stdev(distPct, zLook)
+zVal    = zStd != 0 ? (distPct - ta.sma(distPct, zLook)) / zStd : 0
+zComp   = math.min(math.max(50 + zVal * 20, 0), 100)   // ±2.5σ spans the scale
+
+// MFI availability (gold CFDs etc. often lack real volume)
+volOk  = not na(volume)
+useMFI = mfiMode == "On" or (mfiMode == "Auto" and volOk)
+mW     = useMFI ? wMFI : 0.0
+
+// ── Composite ────────────────────────────────────────────────
+comp = (rsiV * wRSI + nz(mfiV, 50) * mW + pb * wPB + zComp * wZ) / (wRSI + mW + wPB + wZ)
+
+// ── Regime gate ──────────────────────────────────────────────
+[diP, diM, adxV] = ta.dmi(adxLen, adxLen)
+fadeOK = not gateADX or adxV < adxGate or adxV < adxV[3]   // weak OR weakening trend
+
+ob = comp >= obLvl
+os = comp <= osLvl
+obValid = ob and fadeOK    // actionable: stretched AND trend not powering on
+osValid = os and fadeOK
+
+// ── Plot: line + dots, like your example ─────────────────────
+dotCol = obValid ? color.red : osValid ? color.lime : ob ? color.orange : os ? color.teal : color.new(#4a7bd4, 0)
+
+plot(comp, "Composite line", color = color.new(color.gray, 40), linewidth = 1)
+plot(comp, "Composite dots", color = dotCol, linewidth = 3, style = plot.style_circles)
+
+hOB  = hline(obLvl, "Overbought", color = color.new(color.red, 40),   linestyle = hline.style_dashed)
+hOS  = hline(osLvl, "Oversold",   color = color.new(color.green, 40), linestyle = hline.style_dashed)
+hMid = hline(50,    "Mid",        color = color.new(color.gray, 70),  linestyle = hline.style_dotted)
+hTop = hline(100, "", color = color.new(color.black, 100))
+hBot = hline(0,   "", color = color.new(color.black, 100))
+fill(hOB, hTop, color = color.new(color.red, 92))
+fill(hOS, hBot, color = color.new(color.green, 92))
+
+bgcolor(obValid ? color.new(color.red, 88) : osValid ? color.new(color.green, 88) : na)
+
+// ── Component table ──────────────────────────────────────────
+var table t = table.new(position.top_right, 2, 5, bgcolor = color.new(color.black, 30), border_width = 1)
+if showTable and barstate.islast
+    table.cell(t, 0, 0, "RSI",   text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 0, str.tostring(rsiV, "#.0"), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 1, "MFI",   text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 1, useMFI ? str.tostring(mfiV, "#.0") : "off (no vol)", text_color = useMFI ? color.white : color.gray, text_size = size.small)
+    table.cell(t, 0, 2, "%B",    text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 2, str.tostring(pb, "#.0"), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 3, "Z",     text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 3, str.tostring(zVal, "#.00") + "σ", text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 4, "Gate",  text_color = color.silver, text_size = size.small)
+    table.cell(t, 1, 4, fadeOK ? "OPEN (fade ok)" : "BLOCKED (trend)", text_color = fadeOK ? color.lime : color.orange, text_size = size.small)
+
+// ── Alerts ───────────────────────────────────────────────────
+alertcondition(obValid and not obValid[1], "Valid OVERBOUGHT", "OverS/BTracker: overbought + trend gate open")
+alertcondition(osValid and not osValid[1], "Valid OVERSOLD",   "OverS/BTracker: oversold + trend gate open")
